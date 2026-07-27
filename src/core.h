@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "channel.h"
 
 #define MEM_SIZE 4096
 
@@ -14,8 +15,8 @@ typedef struct {
     uint32_t memory[MEM_SIZE];
     bool running;
 
-    uint32_t out_reg[4];
-    uint32_t in_reg[4];
+    Channel out_ch[4];
+    Channel *in_ch[4];
 } RISCV_Core;
 
 void print_state(RISCV_Core *core);
@@ -32,8 +33,8 @@ typedef struct {
 } DecodedInstr;
 
 #define NORD  0
-#define SUD   1
-#define EST   2
+#define EST   1
+#define SUD   2
 #define OVEST 3
 
 #define OP_IMM 0x13
