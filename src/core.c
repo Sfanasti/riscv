@@ -23,7 +23,7 @@ void print_state(RISCV_Core *core) {
         if ((i + 1) % 4 == 0) printf("\n");
     }
 
-    printf("IN: ");
+    printf("IN:  ");
 
     for (int d = 0; d < 4; d++){
         uint32_t v= core -> in_ch[d] ? core -> in_ch[d] -> data : 0;
@@ -50,6 +50,7 @@ void init_core(RISCV_Core *core, uint32_t start_pc, int id) {
     core -> running = true;
     core -> current_inst = 0;
     core -> core_id = id;
+    core -> regs[10] = id;   // a0 = identita' del nodo (equivalente cablato di mhartid)
 }
 
 uint32_t fetch(RISCV_Core *core) {
@@ -352,7 +353,7 @@ void execute(RISCV_Core *core, DecodedInstr d) {
             printf("JAL x%d, %d\n", d.rd, d.imm);
             break;
 
-        case 0x0B:
+        case PCIO:
             {
                 int dir = d.rs2;
 
@@ -374,6 +375,17 @@ void execute(RISCV_Core *core, DecodedInstr d) {
                 }
                 break;
             }
+
+        case ECALL:
+            core -> running = false;
+            printf("ECALL -> core %d fermato\n", core->core_id);
+            break;
+
+        default:
+            core -> running = false;
+            printf("[core %d] pc=0x%08x instr=0x%08x opcode 0x%02x non implementato -> stop\n",
+                   core->core_id, core->pc - 4, core->current_inst, d.opcode);
+            break;        
     }
 
     core -> regs[0] = 0;

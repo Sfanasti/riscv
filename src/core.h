@@ -46,6 +46,8 @@ typedef struct {
 #define AUIPC  0x17
 #define JAL    0x6F
 #define OP     0x33
+#define ECALL  0x73
+#define PCIO   0x0B
 
 void init_cpu(RISCV_Core *cpu);
 uint32_t fetch(RISCV_Core *cpu);

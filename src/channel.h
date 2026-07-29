@@ -14,7 +14,13 @@ typedef struct Channel {
     uint8_t  wp, rp;     // write e read  pointer (mod 2)
 
     uint32_t data_next;       //stato successivo
-    uint8_t  wp_next, rp_next; 
+    uint8_t  wp_next, rp_next;
+
+    /* OUT accettata ma non ancora pubblicata da SETRDY.
+       Non ha un gemello _next e non passa dal commit: lo tocca solo il core
+       proprietario (OUT e SETRDY), il consumatore non lo vede mai, quindi non
+       c'e' visibilita' cross-core da proteggere. */
+    uint8_t  pending;
 } Channel;
 
 //le letture avvengono sempre e solo nello stato attuale
@@ -27,9 +33,10 @@ static inline int ch_iswrt(const Channel *c) {
 
 //SETRDY (produttore): se vuoto pubblica e ritorna 1, altrimenti 0.
 static inline int ch_setrdy(Channel *c) {
-    if (ch_iswrt(c)) { 
+    if (c -> pending && ch_iswrt(c)) {
         c -> wp_next = c -> wp ^ 1;
-        return 1; 
+        c -> pending = 0;
+        return 1;
     }
     return 0;
 }
@@ -43,7 +50,10 @@ static inline uint32_t ch_read_c(Channel *c) {
 
 //le scritture vanno SEMPRE nel next, mai nell'attuale
 static inline void ch_write(Channel *c, uint32_t v) {
-    c -> data_next = v;
+    if (ch_iswrt(c)) {
+        c -> data_next = v;
+        c -> pending = 1;
+    }
 }
 
 // commit: un colpo solo, tutti e tre i campi insieme

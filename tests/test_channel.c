@@ -8,23 +8,46 @@ int main(void) {
     /* vuoto all'inizio */
     assert(ch_iswrt(&c) && !ch_isrdy(&c));
 
-    /* produttore: scrive il dato, poi pubblica */
-    c.data = 42;
-    assert(ch_setrdy(&c) == 1);          /* slot libero -> pubblicazione ok */
-    assert(ch_isrdy(&c) && !ch_iswrt(&c));
+    /* produttore: OUT poi SETRDY -- scrivono solo il "next", non ancora visibili */
+    ch_write(&c, 42);
+    assert(ch_setrdy(&c) == 1);            /* slot libero -> pubblicazione accettata */
+    assert(ch_iswrt(&c) && !ch_isrdy(&c)); /* ma non committata: stato attuale invariato */
+
+    ch_commit(&c);
+    assert(ch_isrdy(&c) && !ch_iswrt(&c)); /* ora sì, dopo il commit */
 
     /* un secondo SETRDY prima che qualcuno legga deve fallire (niente overwrite) */
     assert(ch_setrdy(&c) == 0);
 
-    /* consumatore: legge e consuma */
+    /* consumatore: IN legge il dato e prenota il consumo, non ancora committato */
     uint32_t v = ch_read_c(&c);
     assert(v == 42);
-    assert(ch_iswrt(&c) && !ch_isrdy(&c));  /* di nuovo vuoto */
+    assert(ch_isrdy(&c) && !ch_iswrt(&c)); /* stato attuale non ancora aggiornato */
 
-    /* leggere a vuoto non deve corrompere lo stato (rp non si muove) */
+    ch_commit(&c);
+    assert(ch_iswrt(&c) && !ch_isrdy(&c)); /* di nuovo vuoto dopo il commit */
+
+    /* leggere a vuoto non deve corrompere lo stato */
     uint32_t stale = ch_read_c(&c);
     (void)stale;
+    ch_commit(&c);
     assert(ch_iswrt(&c));
+
+    /* SETRDY senza una OUT accettata non deve pubblicare niente:
+       altrimenti ripubblica il dato vecchio come se fosse nuovo */
+    assert(ch_setrdy(&c) == 0);
+
+    /* backpressure: OUT su canale pieno viene rifiutata, e la SETRDY che
+       segue deve fallire anche se nel frattempo il consumatore ha svuotato */
+    ch_write(&c, 7);
+    assert(ch_setrdy(&c) == 1);
+    ch_commit(&c);                         /* 7 pubblicato, canale pieno */
+    ch_write(&c, 8);                       /* rifiutata: slot occupato */
+    assert(ch_read_c(&c) == 7);            /* il consumatore legge 7 nello stesso ciclo */
+    ch_commit(&c);                         /* ora e' vuoto... */
+    assert(ch_setrdy(&c) == 0);            /* ...ma l'8 non era mai entrato */
+    ch_commit(&c);
+    assert(!ch_isrdy(&c));                 /* niente 7 duplicato */
 
     printf("channel: OK\n");
     return 0;

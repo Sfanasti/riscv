@@ -30,16 +30,29 @@ void run_single_core(RISCV_Core *core) {
     printf("\n[SINGLE CORE] Esecuzione terminata.\n");
 }
 
+static void grid_print(Grid *grid) {
+    for (int r = 0; r < grid->rows; r++)
+        for (int c = 0; c < grid->cols; c++)
+            print_state(grid_at(grid, r, c));
+}
+
 void run_grid(Grid *grid, int cicli) {
-    for (int step = 0; step < cicli && grid_any_running(grid); step++) {
-        printf("\n\n       CICLO DI CLOCK    %d\n\n", step);
+    int passo_passo = getenv("STEP") != NULL;   // STEP=1 -> un ciclo per INVIO
+    int step = 0;
+
+    while (step < cicli && grid_any_running(grid)) {
+        if (passo_passo) {
+            printf("\n\n       CICLO DI CLOCK    %d\n\n", step);
+            grid_print(grid);
+            wait_enter();
+        }
         grid_step(grid);
-        for (int r = 0; r < grid->rows; r++)
-            for (int c = 0; c < grid->cols; c++)
-                print_state(grid_at(grid, r, c));
-        wait_enter();
+        step++;
     }
-    printf("\n[GRID] Esecuzione terminata.\n");
+
+    printf("\n[GRID] fermata dopo %d cicli (%s)\n", step,
+           grid_any_running(grid) ? "limite cicli raggiunto" : "tutti i core fermi");
+    grid_print(grid);
 }
 
 int main(int argc, char **argv) {
