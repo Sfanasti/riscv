@@ -361,7 +361,7 @@ void execute(RISCV_Core *core, DecodedInstr d) {
                     printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, core -> regs[d.rd]);
                 }
                 else if (d.funct3 == 0x1) { //OUT
-                    core  ->  out_ch[dir].data = core -> regs[d.rs1];
+                    ch_write(&core->out_ch[dir], core->regs[d.rs1]);
                     printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, core -> regs[d.rs1]);
                 }
                 else if(d.funct3 == 0x2) { //ISRDY

@@ -10,25 +10,47 @@
       vuoto / scrivibile :  wp == rp
  */
 typedef struct Channel {
-    uint32_t data;   // slot dati (un solo valore, profondita' 1)
-    uint8_t  wp;     // write pointer (mod 2)
-    uint8_t  rp;     // read  pointer (mod 2)
+    uint32_t data;       // slot dati (un solo valore, profondita' 1)
+    uint8_t  wp, rp;     // write e read  pointer (mod 2)
+
+    uint32_t data_next;       //stato successivo
+    uint8_t  wp_next, rp_next; 
 } Channel;
 
-static inline int ch_isrdy(const Channel *c) { return c->wp != c->rp; }
-static inline int ch_iswrt(const Channel *c) { return c->wp == c->rp; }
+//le letture avvengono sempre e solo nello stato attuale
+static inline int ch_isrdy(const Channel *c) { 
+    return c -> wp != c -> rp; 
+}
+static inline int ch_iswrt(const Channel *c) { 
+    return c -> wp == c -> rp; 
+}
 
 //SETRDY (produttore): se vuoto pubblica e ritorna 1, altrimenti 0.
 static inline int ch_setrdy(Channel *c) {
-    if (ch_iswrt(c)) { c->wp ^= 1; return 1; }
+    if (ch_iswrt(c)) { 
+        c -> wp_next = c -> wp ^ 1;
+        return 1; 
+    }
     return 0;
 }
 
 //Lettura consume-on-read: ritorna il dato e, se era pieno, libera lo slot.
 static inline uint32_t ch_read_c(Channel *c) {
-    uint32_t v = c->data;
-    if (ch_isrdy(c)) c->rp ^= 1;
+    uint32_t v = c -> data;
+    if (ch_isrdy(c)) c -> rp_next = c -> rp ^ 1;
     return v;
+}
+
+//le scritture vanno SEMPRE nel next, mai nell'attuale
+static inline void ch_write(Channel *c, uint32_t v) {
+    c -> data_next = v;
+}
+
+// commit: un colpo solo, tutti e tre i campi insieme
+static inline void ch_commit(Channel *c) {
+    c->data = c->data_next;
+    c->wp = c->wp_next;
+    c->rp = c->rp_next;
 }
 
 #endif

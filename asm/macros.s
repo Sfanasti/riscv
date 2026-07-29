@@ -2,13 +2,13 @@
 # Formato I-type:   .insn i opcode, funct3, rd, rs1, imm
 #   | imm[11:0] | rs1 | funct3 | rd | opcode |
 #   |  31..20   |19.15| 14..12 |11.7|  6..0  |
-# La direzione sta nei 2 bit bassi dell'immediato (mappatura FISSA dello spec):
+# La direzione sta nei 2 bit bassi dell'immediato
 .equ NORD,  0
 .equ EST,   1
 .equ SUD,   2
 .equ OVEST, 3
 
-# --- percorso dati (gia' presenti in stella) ---
+# --- percorso dati  ---
 .macro IN rd, dir              # rd <- IN[dir]            (funct3=0)
     .insn i 0x0B, 0x0, \rd, x0, \dir
 .endm
