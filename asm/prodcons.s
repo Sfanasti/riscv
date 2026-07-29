@@ -1,9 +1,14 @@
 .option norvc
 .include "macros.s"
 
-# Produttore/consumatore su griglia 1x2.
-#   nodo 0 (a0=0): manda 1..QUANTI a EST
-#   nodo 1 (a0=1): legge da OVEST e accumula in s1
+# Produttore/consumatore su griglia 1x2 - il caso minimo del protocollo.
+# Per una catena piu' lunga vedi chain.s, che generalizza questo con i nodi
+# di inoltro in mezzo; qui restano solo i due ruoli, per leggerli puliti.
+#   colonna 0 (a1=0): manda 1..QUANTI a EST
+#   colonna 1 (a1=1): legge da OVEST e accumula in s1
+#
+# Registri di identita' precaricati da grid_init:
+#   a0 = riga   a1 = colonna   a2 = righe totali   a3 = colonne totali
 # Atteso: s1 del nodo 1 == QUANTI*(QUANTI+1)/2, per QUALSIASI valore di RITARDO.
 #
 # Contatori per il debug, leggibili nella stampa finale:
@@ -35,8 +40,8 @@
 .text
 .global _start
 _start:
-    mv     s0, a0          # s0 = id del nodo: a0 lo puo' sporcare chiunque
-    beqz   s0, produttore
+    mv     s0, a1          # s0 = la mia colonna: a1 lo puo' sporcare chiunque
+    beqz   s0, produttore  # colonna 0 -> produce
     j      consumatore
 
 produttore:

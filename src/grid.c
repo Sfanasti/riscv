@@ -12,7 +12,19 @@ void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
 
     for(int r = 0; r < rows; r++){
         for(int c = 0; c < cols; c++){
-            init_core(grid_at(grid, r, c), start_pc, r * cols + c);
+            RISCV_Core *k = grid_at(grid, r, c);
+            init_core(k, start_pc, r * cols + c);
+
+            /* Identita' cablata: ogni cella nasce sapendo dove si trova.
+               Serve perche' i programmi scelgono il proprio ruolo dalla
+               posizione (sono il bordo ovest? l'ultima colonna?) e ricavarla
+               dall'id lineare richiederebbe una divisione, che rv32i non ha.
+               E' l'equivalente delle coordinate cablate di una cella systolic
+               vera; su hardware RISC-V standard sarebbe il CSR mhartid. */
+            k -> regs[10] = (uint32_t)r;      // a0 = riga
+            k -> regs[11] = (uint32_t)c;      // a1 = colonna
+            k -> regs[12] = (uint32_t)rows;   // a2 = righe totali
+            k -> regs[13] = (uint32_t)cols;   // a3 = colonne totali
         }
     }
 

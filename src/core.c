@@ -50,7 +50,8 @@ void init_core(RISCV_Core *core, uint32_t start_pc, int id) {
     core -> running = true;
     core -> current_inst = 0;
     core -> core_id = id;
-    core -> regs[10] = id;   // a0 = identita' del nodo (equivalente cablato di mhartid)
+    /* i registri di identita' (a0..a3 = riga, colonna, righe, colonne) li
+       scrive grid_init: qui non si sa niente della topologia */
 }
 
 uint32_t fetch(RISCV_Core *core) {

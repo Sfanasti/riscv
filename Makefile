@@ -26,7 +26,7 @@ OBJ = $(SRC:src/%.c=build/%.o)
 ASM_SRC = $(wildcard asm/*.s)
 ASM_OBJ = $(ASM_SRC:asm/%.s=build/%.o)
 
-.PHONY: all stella asm test test-channel test-prodcons run step clean
+.PHONY: all stella asm test test-channel test-prodcons test-chain run step clean
 
 all stella: build/stella
 
@@ -53,23 +53,38 @@ run step: build/stella
 	$(AS) $(ASFLAGS) $(DEFS) -o build/$(P).o asm/$(P).s
 	$(MODO) ./build/stella build/$(P).o $(R) $(C) $(N)
 
-test: test-channel test-prodcons
+test: test-channel test-prodcons test-chain
 
 test-channel: tests/test_channel.c src/channel.h | build
 	$(CC) $(CFLAGS) -o build/test_channel tests/test_channel.c
 	./build/test_channel
 
-# la somma non deve dipendere dalla velocita' relativa dei due nodi:
-# stesso programma, stesso risultato atteso, ritardo del consumatore variabile.
-# La somma attesa e' derivata da QUANTI, non scritta: make test QUANTI=10
+# Il risultato non deve dipendere ne' dalla velocita' relativa dei nodi
+# (RITARDI) ne' dalla lunghezza della catena (COLONNE). La somma attesa e'
+# derivata da QUANTI, non scritta a mano: make test QUANTI=10
 RITARDI = 0 1 4 8 25 60
+COLONNE = 2 3 5 12
 QUANTI ?= 5
-test-prodcons: tests/test_prodcons.c $(SRC) asm/prodcons.s | build
-	$(CC) $(CFLAGS) -o build/test_prodcons tests/test_prodcons.c src/core.c src/grid.c src/elf.c
+ATTESA  = $$(( $(QUANTI) * ($(QUANTI) + 1) / 2 ))
+
+# un solo binario di test per entrambi i programmi: prodcons.s e' il caso C=2
+build/test_catena: tests/test_catena.c $(SRC) src/*.h | build
+	$(CC) $(CFLAGS) -o $@ tests/test_catena.c src/core.c src/grid.c src/elf.c
+
+test-prodcons: build/test_catena asm/prodcons.s
 	@for d in $(RITARDI); do \
 	  $(AS) $(ASFLAGS) --defsym RITARDO=$$d --defsym QUANTI=$(QUANTI) \
 	      -o build/pc_$$d.o asm/prodcons.s || exit 1; \
-	  ./build/test_prodcons build/pc_$$d.o $$(( $(QUANTI) * ($(QUANTI) + 1) / 2 )) || exit 1; \
+	  ./build/test_catena build/pc_$$d.o 2 $(ATTESA) || exit 1; \
+	done
+
+test-chain: build/test_catena asm/chain.s
+	@for d in $(RITARDI); do \
+	  $(AS) $(ASFLAGS) --defsym RITARDO=$$d --defsym QUANTI=$(QUANTI) \
+	      -o build/ch_$$d.o asm/chain.s || exit 1; \
+	  for c in $(COLONNE); do \
+	    ./build/test_catena build/ch_$$d.o $$c $(ATTESA) || exit 1; \
+	  done; \
 	done
 
 build:
