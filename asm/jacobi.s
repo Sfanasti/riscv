@@ -1,44 +1,44 @@
 .option norvc
 .include "macros.s"
 
-# Jacobi a 5 punti su griglia RxC: u(r,c) <- media dei quattro vicini, ITER volte.
+# Stencil kernel: algoritmo in cui il valore di ogni elemento di una griglia viene 
+# aggiornato usando i valori dei suoi vicini.
+#
+# Jacobi a 5 punti su griglia RxC: u(r,c) -> media dei quattro vicini, ITER volte.
 #
 # Primo kernel completamente uniforme: nessun salto condizionato sulla
 # posizione, nemmeno ai margini. Le celle di perimetro leggono la condizione al
 # contorno dal canale di bordo come leggerebbero un vicino (l'host la alimenta
 # con BORDO=n) e pubblicano verso l'esterno come pubblicherebbero verso un
-# vicino (l'host drena). Confronta reduce.s, che deve chiedersi "sono la
-# colonna 0?": la sua asimmetria e' dell'algoritmo, non del bordo, e nessun
-# supporto dell'host la togliera' mai.
+# vicino (l'host drena). 
+# Da notare il contrasto con reduce.s, che deve chiedersi "sono la colonna 0?": la sua asimmetria è 
+# dell'algoritmo, non del bordo, e nessun supporto dell'host la toglierà mai.
 #
-# I quattro OUT vanno TUTTI prima dei quattro IN, e non e' una preferenza
-# stilistica: e' la condizione per cui il kernel non va in deadlock su canali
-# di profondita' 1. Se tutte le celle fossero bloccate, quella all'iterazione
-# piu' bassa non potrebbe essere in spedizione (aspetterebbe qualcuno a
-# un'iterazione ancora inferiore), quindi sarebbe in ricezione — ma una cella
-# in ricezione ha per costruzione gia' pubblicato tutti e quattro i suoi
-# valori, quindi cio' che aspetta c'e' gia'. Contraddizione.
+# I quattro OUT vanno TUTTI prima dei quattro IN, e non è una preferenza
+# stilistica: è la condizione per cui il kernel non va in deadlock su canali
+# di profondità 1. Se tutte le celle fossero bloccate, quella all'iterazione
+# più bassa non potrebbe essere in spedizione (aspetterebbe qualcuno a
+# un'iterazione ancora inferiore), ovvero sarebbe in ricezione — ma una cella
+# in ricezione ha per costruzione già pubblicato tutti e quattro i suoi
+# valori, quindi ciò che aspetta c'è già. Contraddizione.
 # Ricevere prima di spedire va in deadlock al primo giro; alternare per
 # direzione si sblocca solo per come sono disposti i bordi.
 #
-# E' Jacobi e non Gauss-Seidel perche' si spedisce il valore VECCHIO prima di
-# calcolare il nuovo: tutti leggono l'iterazione k per produrre la k+1. Nota
-# che questo NON viene dal doppio buffer di channel.h, che serve al
-# determinismo a livello di ciclo: qui e' la struttura del programma.
+# È appunto Jacobi, non Gauss-Seidel: si spedisce il valore VECCHIO prima di
+# calcolare il nuovo: tutti leggono l'iterazione k per produrre la k+1.
 #
-# Identita' precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
+# Identità precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
 # s1 = u (valore corrente)   s2 = somma dei vicini   s3 = iterazioni rimaste
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   ITER   quante iterazioni di Jacobi                              default 32
-#   SEME   0 = interno freddo (u=0), 1 = campo iniziale u=r+c       default 0
+#   ITER   quante iterazioni di Jacobi --> default 32
+#   SEME   0 = interno freddo (u=0), 1 = campo iniziale u=r+c --> default 0
 #
 # La tolleranza sull'errore non vive qui: il riferimento in C di
-# tests/test_jacobi.c e' esatto bit per bit, quindi max|u_k - u_k-1| calcolato
-# li' E' la convergenza di questo kernel. La tabella che stampa dice con quale
-# ITER compilare per stare sotto una data tolleranza.
+# tests/test_jacobi.c è esatto bit per bit, quindi max|u_k - u_k-1| calcolato
+# lì è la convergenza di questo kernel.
 #
-# USO: make run P=stencil R=4 C=4 N=4000 BORDO=64
+# USO: make run P=jacobi R=4 C=4 N=4000 BORDO=64
 #      make test-jacobi ITER=64 BORDO=64
 
 .ifndef ITER
@@ -94,15 +94,16 @@ iterazione:
     IN      t1, OVEST
     add     s2, s2, t1
 
-# ---- 3. media dei quattro, arrotondata al piu' vicino ----
-# Il +2 non e' cosmesi. srai secco tronca, e la troncatura e' un bias
-# sistematico verso il basso che crea un PUNTO FISSO SPURIO: quando i quattro
-# vicini valgono B-1 il risultato resta B-1, quindi il campo si ferma sotto la
-# soluzione e non ci arriva piu' per nessun numero di iterazioni (misurato su
-# 4x4 con BORDO=64: stallo a 60..62 anche a ITER=64). Con l'arrotondamento
-# converge esatto a 64. Una istruzione fra un kernel che risolve Jacobi e uno
-# che converge alla risposta sbagliata.
-# La somma di quattro valori sta larga fino a BORDO ~ 2^29, nessun overflow.
+# ---- 3. media dei quattro, arrotondata al più vicino ----
+#
+# srai secco tronca, e la troncatura è un bias sistematico verso il
+# basso che crea un PUNTO FISSO SPURIO: quando i quattro vicini valgono B-1
+# il risultato resta B-1, quindi il campo si ferma sotto la soluzione e non ci arriva
+# più per nessun numero di iterazioni (misurato su 4x4 BORDO=64: stallo a 60..62 
+# anche a ITER=64). 
+# Con l'arrotondamento converge esatto a 64.
+# La somma di quattro valori sta larga fino a BORDO ~ 2^29, evitando dunque overflow.
+#
     addi    s2, s2, 2
     srai    s1, s2, 2
 

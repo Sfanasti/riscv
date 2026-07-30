@@ -2,46 +2,52 @@
 .include "macros.s"
 
 # Produttore/consumatore su griglia 1x2 - il caso minimo del protocollo.
-# Per una catena piu' lunga vedi chain.s, che generalizza questo con i nodi
+# Per una catena più lunga si veda chain.s, che generalizza questo con i nodi
 # di inoltro in mezzo; qui restano solo i due ruoli, per leggerli puliti.
 #   colonna 0 (a1=0): manda 1..QUANTI a EST
 #   colonna 1 (a1=1): legge da OVEST e accumula in s1
 #
-# Registri di identita' precaricati da grid_init:
+# Registri di identità precaricati da grid_init:
 #   a0 = riga   a1 = colonna   a2 = righe totali   a3 = colonne totali
 # Atteso: s1 del nodo 1 == QUANTI*(QUANTI+1)/2, per QUALSIASI valore di RITARDO.
 #
 # Contatori per il debug, leggibili nella stampa finale:
 #   nodo 0  s3 = SETRDY rifiutate  (quanto il produttore ha aspettato: backpressure)
-#   nodo 1  s4 = ISRDY a vuoto     (quanto il consumatore e' rimasto a digiuno)
+#   nodo 1  s4 = ISRDY a vuoto     (quanto il consumatore è rimasto a digiuno)
 # Dicono da che parte sta il collo di bottiglia. A RITARDO basso aspettano
 # entrambi (misurato: 2 e 3); alzando RITARDO s4 va a 0 e s3 cresce.
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   QUANTI    quanti valori spedisce il produttore                    default 5
-#   RITARDO   cicli sprecati dal consumatore prima di ogni lettura    default 0
+#   QUANTI    quanti valori spedisce il produttore --> default 5
+#   RITARDO   cicli sprecati dal consumatore prima di ogni lettura --> default 0
 #
 # USO:
 #   make run  P=prodcons R=1 C=2 N=2000 DEFS="--defsym RITARDO=25"
-#   make step P=prodcons R=1 C=2 N=40          un ciclo per INVIO
-#   make test QUANTI=10                        sweep di RITARDO, con assert
+#   make step P=prodcons R=1 C=2 N=40   un ciclo per INVIO
+#   make test-prodcons [QUANTI=10]      sweep dei 6 RITARDI, assert sulla somma
+#   make test-nobp     [QUANTI=10]      stesso sweep senza backpressure: lì
+#                                       la somma sbaglia, ed è il risultato
+#
+# RITARDO non si passa da qui: lo fa variare il Makefile (RITARDI = 0 1 4 8 25 60),
+# riassemblando questo file una volta per valore. Da fuori si sceglie solo QUANTI,
+# che entra sia nel --defsym sia nella somma attesa QUANTI*(QUANTI+1)/2.
 #
 # N va dimensionato sul RITARDO: se la stampa finale dice "limite cicli
-# raggiunto" l'esecuzione e' stata troncata e i registri non sono un risultato.
+# raggiunto" l'esecuzione è stata troncata e i registri non sono un risultato.
 # Ordine di grandezza: RITARDO=25 con QUANTI=5 chiude in ~292 cicli.
 
 .ifndef RITARDO
-.equ RITARDO, 0            # cicli sprecati dal consumatore prima di ogni lettura
+.equ RITARDO, 0            
 .endif
 .ifndef QUANTI
-.equ QUANTI, 5             # quanti valori spedisce il produttore
+.equ QUANTI, 5             
 .endif
 
 .text
 .global _start
 _start:
-    mv     s0, a1          # s0 = la mia colonna: a1 lo puo' sporcare chiunque
-    beqz   s0, producer  # colonna 0 -> produce
+    mv     s0, a1          # s0 = la mia colonna: a1 lo può sporcare chiunque
+    beqz   s0, producer    # colonna 0 -> produce
     j      consumer
 
 producer:
@@ -70,7 +76,7 @@ consumer:
 .endif
 4:  ISRDY  t0, OVEST
     bnez   t0, 6f
-    addi   s4, s4, 1       # niente da leggere -> conta e rispin
+    addi   s4, s4, 1       # niente da leggere -> conta e respin
     j      4b
 6:  IN     t1, OVEST
     add    s1, s1, t1

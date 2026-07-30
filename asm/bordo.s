@@ -5,12 +5,12 @@
 # Su una griglia RxC le colonne sono indipendenti e il dato attraversa tutta
 # la griglia dall'alto in basso.
 #
-# Serve a dimostrare l'I/O di bordo dell'host, perche' i due capi della catena
+# Serve a dimostrare l'I/O di bordo dell'host, perché i due capi della catena
 # cadono fuori dalla griglia:
 #   la prima riga  aspetta su NORD un vicino che non esiste -> lo alimenta l'host
-#   l'ultima riga  pubblica su SUD verso nessuno            -> lo drena l'host
+#   l'ultima riga  pubblica su SUD verso nessuno -> lo drena l'host
 # Senza il drenaggio l'ultima riga resterebbe bloccata sulla propria SETRDY:
-# e' il motivo per cui grid_pop esiste e non basta "leggere" il canale.
+# è il motivo per cui grid_pop esiste e non basta "leggere" il canale.
 #
 # Atteso a fine corsa: s1 == valore spinto, in TUTTE le RxC celle.
 #

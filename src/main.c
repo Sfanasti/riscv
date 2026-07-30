@@ -7,8 +7,11 @@
 #include <string.h>
 
 static int grid_any_running(Grid *g) {
-    for (int i = 0; i < g->rows * g->cols; i++)
-        if (g->cores[i].running) return 1;
+    for (int i = 0; i < g->rows * g->cols; i++) {
+        if (g->cores[i].running) {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -31,14 +34,16 @@ void run_single_core(RISC_V *core) {
 }
 
 static void grid_print(Grid *grid) {
-    for (int r = 0; r < grid->rows; r++)
-        for (int c = 0; c < grid->cols; c++)
+    for (int r = 0; r < grid->rows; r++) {
+        for (int c = 0; c < grid->cols; c++) {
             print_state(grid_at(grid, r, c));
+        }
+    }
 }
 
 void run_grid(Grid *grid, int cicli) {
-    int passo_passo = getenv("STEP") != NULL;   // STEP=1 -> un ciclo per INVIO
-    const char *bordo = getenv("BORDO");        // BORDO=<n> -> contorno costante
+    int passo_passo = getenv("STEP") != NULL;   /* STEP=1 -> un ciclo per INVIO */
+    const char *bordo = getenv("BORDO");        /* BORDO=<n> -> contorno costante */
     int step = 0, usciti = 0;
 
     while (step < cicli && grid_any_running(grid)) {
@@ -48,18 +53,28 @@ void run_grid(Grid *grid, int cicli) {
             wait_enter();
         }
 
-        /* L'host prima del passo: alimenta il perimetro. Il contorno costante
-           e' il caso dello stencil (Dirichlet); un contorno che varia per
-           cella o nel tempo si scrive con grid_push, vedi tests/test_bordo.c.
-           Senza BORDO i canali di bordo restano vuoti per sempre, cioe' un
-           bordo aperto da cui non arriva mai niente. */
-        if (bordo) grid_border_fill(grid, (uint32_t)strtoul(bordo, NULL, 0));
+        /*
 
-        /* Il drenaggio non e' opzionale come l'alimentazione: un OUT di
-           perimetro che nessuno consuma inchioda la cella sulla propria
-           SETRDY. Si stampa solo il totale — un kernel come lo stencil, che
-           spinge fuori da tutti e quattro i lati a ogni iterazione, sommergerebbe
-           la traccia. Per un valore preciso c'e' grid_pop da C. */
+            L'host prima del passo: alimenta il perimetro. Il contorno costante
+            è il caso dello stencil (Dirichlet); un contorno che varia per
+            cella o nel tempo si scrive con grid_push, come sivede in tests/test_bordo.c.
+            Senza BORDO i canali di bordo restano vuoti per sempre, cioè un
+            bordo aperto da cui non arriva mai niente.
+
+        */
+        if (bordo) {
+            grid_border_fill(grid, (uint32_t)strtoul(bordo, NULL, 0));
+        }
+
+        /*
+
+            Il drenaggio non è opzionale come l'alimentazione: un OUT di
+            perimetro che nessuno consuma inchioda la cella sulla propria
+            SETRDY. Si stampa solo il totale: un kernel come lo stencil, che
+            spinge fuori da tutti e quattro i lati a ogni iterazione, sommergerebbe
+            la traccia. Per un valore preciso c'è grid_pop da C.
+
+        */
         usciti += grid_border_drain(grid);
 
         grid_step(grid);
@@ -81,7 +96,9 @@ int main(int argc, char **argv) {
 
     long fileSize;
     uint8_t *elf_content = load_elf(argv[1], &fileSize);
-    if (!elf_content) return 1;
+    if (!elf_content) {
+        return 1;
+    }
     check_elf(elf_content);
     Elf32_Ehdr *header = (Elf32_Ehdr *)elf_content;
     printf("Entry point: 0x%08x\n", header -> e_entry);
@@ -99,9 +116,11 @@ int main(int argc, char **argv) {
 
         Grid grid;
         grid_init(&grid, rows, cols, header -> e_entry);
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
                 carica_elf_in_core(grid_at(&grid, r, c), elf_content, header);
+            }
+        }
 
         run_grid(&grid, cicli);
         grid_free(&grid);

@@ -2,15 +2,15 @@
 .include "macros.s"
 
 # Broadcast su griglia RxC: un valore parte da (0,0) e raggiunge ogni cella.
-#   (0,0)        sorgente: genera VALORE e lo spinge a EST e SUD
-#   ogni altra   aspetta da NORD *o* OVEST, poi lo ripete a EST e SUD
+#   (0,0) --> sorgente: genera VALORE e lo spinge a EST e SUD
+#   ogni altra --> aspetta da NORD (o) OVEST, poi lo ripete a EST e SUD
 #
 # Il dato si propaga come un'onda diagonale: la cella (r,c) lo vede dopo r+c
 # hop, da qualunque dei due predecessori gli arrivi per primo.
 # Atteso a fine corsa: s1 == VALORE in TUTTE le RxC celle.
 #
-# Identita' precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
-# s4 = cicli passati ad aspettare (cresce con r+c: e' la forma dell'onda)
+# Identità precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
+# s4 = cicli passati ad aspettare (cresce con r+c: è la forma stessa dell'onda)
 #
 # USO: make run P=broadcast R=3 C=4 N=400
 

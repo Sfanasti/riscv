@@ -14,32 +14,57 @@ static const char *REG_NAMES[32] = {
 
 static const char *DIR_NAMES[4] = { "NORD", "EST", "SUD", "OVEST" };
 
+/*
+
+    NOBP=1 -> modalità senza backpressure, si veda il case PCIO. Letta una volta
+    sola e non più riletta: stessa convenzione di STEP e BORDO in main.c, ma qui
+    la variabile serve anche ai test, che non passano da main.
+
+*/
+static int nobp(void) {
+    static int v = -1;
+    if (v < 0) {
+        v = getenv("NOBP") != NULL;
+    }
+    return v;
+}
+
 void print_state(RISC_V *core) {
     printf("\n--- STATO CORE [%d] | PC: 0x%08x | INSTR: 0x%08x ---\n",
            core -> core_id, core -> pc, core -> current_inst);
 
     for (int i = 0; i < 32; i++) {
         printf("x%02d (%-4s) = %-10d ", i, REG_NAMES[i], (int32_t)core -> regs[i]);
-        if ((i + 1) % 4 == 0) printf("\n");
+        if ((i + 1) % 4 == 0) {
+            printf("\n");
+        }
     }
 
     printf("IN:  ");
 
     for (int d = 0; d < 4; d++){
-        uint32_t v= core -> in_ch[d] ? core -> in_ch[d] -> data : 0;
-        printf("%s=%-6d ", DIR_NAMES[d], v);
+        Channel *c = core -> in_ch[d];
+        printf("%s=%-6d%c ", DIR_NAMES[d], c ? c -> data : 0,
+               c && ch_isrdy(c) ? '*' : '.');
     }
 
     printf("\nOUT: ");
 
-    for (int d = 0; d < 4; d++) printf("%s=%-6d ", DIR_NAMES[d], core -> out_ch[d].data);
+    for (int d = 0; d < 4; d++){
+        printf("%s=%-6d%c ", DIR_NAMES[d], core -> out_ch[d].data,
+               ch_isrdy(&core -> out_ch[d]) ? '*' : '.');
+        }
     printf("\n");
 }
 
 void init_core(RISC_V *core, uint32_t start_pc, int id) {
-    for (int i = 0; i < 32; i++) core -> regs[i] = 0;
+    for (int i = 0; i < 32; i++){
+        core -> regs[i] = 0;
+    }
 
-    for (int i = 0; i < 4096; i++) core -> memory[i] = 0;
+    for (int i = 0; i < 4096; i++){
+        core -> memory[i] = 0;
+    }
 
     for (int i = 0; i < 4; i++) {
         core -> out_ch[i] = (Channel){0};
@@ -50,8 +75,14 @@ void init_core(RISC_V *core, uint32_t start_pc, int id) {
     core -> running = true;
     core -> current_inst = 0;
     core -> core_id = id;
-    /* i registri di identita' (a0..a3 = riga, colonna, righe, colonne) li
-       scrive grid_init: qui non si sa niente della topologia */
+    core -> attese = 0;
+    core -> ritentativi = 0;
+    /*
+
+        i registri di identità (a0..a3 = riga, colonna, righe, colonne) li
+        scrive grid_init: qui non si sa niente della topologia
+
+    */
 }
 
 uint32_t fetch(RISC_V *core) {
@@ -83,16 +114,18 @@ DecodedInstr decode(uint32_t instr) {
 
     if (d.opcode == OP_IMM || d.opcode == LOAD || d.opcode == JALR) {
         int32_t imm_i = (instr >> 20) & 0xFFF;
-        if (imm_i & 0x800)
+        if (imm_i & 0x800) {
             imm_i = (int32_t)(imm_i << 20) >> 20;
+        }
         d.imm = imm_i;
     }
 
     if (d.opcode == STORE) {
         int32_t imm_s = ((instr >> 7) & 0x1F) | (((instr >> 25) & 0x7F) << 5);
 
-        if (imm_s & 0x800)
+        if (imm_s & 0x800) {
             imm_s |= 0xFFFFF000;
+        }
         d.imm = imm_s;
     }
 
@@ -101,8 +134,9 @@ DecodedInstr decode(uint32_t instr) {
                       | ((instr >> 20) & 0x7E0)
                       | ((instr << 4) & 0x800)
                       | ((instr >> 19) & 0x1000);
-        if (imm_b & 0x1000)
+        if (imm_b & 0x1000) {
             imm_b |= 0xFFFFE000;
+        }
         d.imm = imm_b;
     }
 
@@ -115,22 +149,32 @@ DecodedInstr decode(uint32_t instr) {
                       | ((instr >> 20) & 0x1) << 11
                       | ((instr >> 21) & 0x3FF) << 1
                       | ((instr >> 31) & 0x1) << 20;
-        if (imm_j & 0x100000)
+        if (imm_j & 0x100000) {
             imm_j |= 0xFFE00000;
+        }
         d.imm = imm_j;
     }
     return d;
 }
 
-/* Larghezza in byte per funct3 di LOAD/STORE; 0 = codifica non implementata.
-   LB LH LW - LBU LHU - -                                                     */
+/*
+
+    Larghezza in byte per funct3 di LOAD/STORE; 0 = codifica non implementata.
+    LB LH LW - LBU LHU - -
+
+*/
 static const int LS_WIDTH[8] = { 1, 2, 4, 0, 1, 2, 0, 0 };
 
-/* La RAM del core e' byte-indirizzata (come la vede il caricatore ELF, che fa
-   memcpy su (uint8_t*)memory + sh_addr): 'memory' e' uint32_t[] solo per
-   comodita' del fetch. L'indirizzo NON e' quindi un indice di parola.
-   Senza questo controllo uno store oltre i 16 KB finiva nel core successivo
-   dell'array flat di grid.c, corrompendolo in silenzio. */
+/*
+
+    La RAM del core è byte-indirizzata (come la vede il caricatore ELF, che fa
+    memcpy su (uint8_t*)memory + sh_addr): "memory" è uint32_t[] solo per
+    comodità del fetch.
+    L'indirizzo NON è quindi un indice di parola.
+    Senza questo controllo uno store oltre i 16 KB finiva nel core successivo
+    dell'array flat di grid.c, corrompendolo.
+
+*/
 static uint8_t *mem_ptr(RISC_V *core, uint32_t addr, int width) {
     if (width == 0 || addr > (uint32_t)sizeof(core -> memory) - (uint32_t)width) {
         printf("[core %d] accesso a 0x%08x (%d byte) fuori RAM -> stop\n",
@@ -152,10 +196,10 @@ void execute(RISC_V *core, DecodedInstr d) {
             {
                 address = core -> regs[d.rs1] + d.imm;
                 uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
-                if (!p) break;
+                if (!p) {
+                    break;
+                }
 
-                /* memcpy e non un cast a int32_t*: l'indirizzo puo' essere
-                   disallineato e il cast sarebbe UB */
                 int16_t h; int32_t w;
                 switch (d.funct3) {
                     case 0x0:
@@ -188,7 +232,9 @@ void execute(RISC_V *core, DecodedInstr d) {
             {
                 address = core -> regs[d.rs1] + d.imm;
                 uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
-                if (!p) break;
+                if (!p) {
+                    break;
+                }
 
                 uint32_t v = core -> regs[d.rs2];
                 memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian: i byte bassi per primi */
@@ -268,8 +314,11 @@ void execute(RISC_V *core, DecodedInstr d) {
 
                 case 0x4:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) core -> regs[d.rd] = 0xFFFFFFFF;
-                        else core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] / (int32_t)core -> regs[d.rs2];
+                        if (core -> regs[d.rs2] == 0) {
+                            core -> regs[d.rd] = 0xFFFFFFFF;
+                        } else {
+                            core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] / (int32_t)core -> regs[d.rs2];
+                        }
                         printf("DIV x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         core -> regs[d.rd] = core -> regs[d.rs1] ^ core -> regs[d.rs2];
@@ -279,8 +328,11 @@ void execute(RISC_V *core, DecodedInstr d) {
 
                 case 0x6:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) core -> regs[d.rd] = core -> regs[d.rs1];
-                        else core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] % (int32_t)core -> regs[d.rs2];
+                        if (core -> regs[d.rs2] == 0) {
+                            core -> regs[d.rd] = core -> regs[d.rs1];
+                        } else {
+                            core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] % (int32_t)core -> regs[d.rs2];
+                        }
                         printf("REM x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         core -> regs[d.rd] = core -> regs[d.rs1] | core -> regs[d.rs2];
@@ -315,8 +367,11 @@ void execute(RISC_V *core, DecodedInstr d) {
                         core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] >> (core -> regs[d.rs2] & 0x1F);
                         printf("SRA x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) core -> regs[d.rd] = 0xFFFFFFFF;
-                        else core -> regs[d.rd] = core -> regs[d.rs1] / core -> regs[d.rs2];
+                        if (core -> regs[d.rs2] == 0) {
+                            core -> regs[d.rd] = 0xFFFFFFFF;
+                        } else {
+                            core -> regs[d.rd] = core -> regs[d.rs1] / core -> regs[d.rs2];
+                        }
                         printf("DIVU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         core -> regs[d.rd] = (uint32_t)core -> regs[d.rs1] >> (core -> regs[d.rs2] & 0x1F);
@@ -326,8 +381,11 @@ void execute(RISC_V *core, DecodedInstr d) {
 
                 case 0x7:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) core -> regs[d.rd] = core -> regs[d.rs1];
-                        else core -> regs[d.rd] = core -> regs[d.rs1] % core -> regs[d.rs2];
+                        if (core -> regs[d.rs2] == 0) {
+                            core -> regs[d.rd] = core -> regs[d.rs1];
+                        } else {
+                            core -> regs[d.rd] = core -> regs[d.rs1] % core -> regs[d.rs2];
+                        }
                         printf("REMU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         core -> regs[d.rd] = core -> regs[d.rs1] & core -> regs[d.rs2];
@@ -351,29 +409,47 @@ void execute(RISC_V *core, DecodedInstr d) {
             val1 = core -> regs[d.rs1];
             val2 = core -> regs[d.rs2];
             switch (d.funct3) {
-                case 0x0: if (val1 == val2) branch_taken = 1;
-                    printf("BEQ "); break;
-                case 0x1: if (val1 != val2) branch_taken = 1;
-                    printf("BNE "); break;
-                case 0x4: if ((int32_t)val1 < (int32_t)val2) branch_taken = 1;
-                    printf("BLT "); break;
-                case 0x5: if ((int32_t)val1 >= (int32_t)val2) branch_taken = 1;
-                    printf("BGE "); break;
-                case 0x6: if (val1 < val2) branch_taken = 1;
-                    printf("BLTU "); break;
-                case 0x7: if (val1 >= val2) branch_taken = 1;
-                    printf("BGEU "); break;
+                case 0x0: if (val1 == val2) { branch_taken = 1; }
+                    printf("BEQ ");
+                    break;
+
+                case 0x1: if (val1 != val2) { branch_taken = 1; }
+                    printf("BNE ");
+                    break;
+
+                case 0x4: if ((int32_t)val1 < (int32_t)val2) { branch_taken = 1; }
+                    printf("BLT ");
+                    break;
+
+                case 0x5: if ((int32_t)val1 >= (int32_t)val2) { branch_taken = 1; }
+                    printf("BGE ");
+                    break;
+
+                case 0x6: if (val1 < val2) { branch_taken = 1; }
+                    printf("BLTU ");
+                    break;
+
+                case 0x7: if (val1 >= val2) { branch_taken = 1; }
+                    printf("BGEU ");
+                    break;
+
             }
-            if (branch_taken) core -> pc = (core -> pc - 4) + d.imm;
+            if (branch_taken) {
+                core -> pc = (core -> pc - 4) + d.imm;
+            }
             printf("x%d, x%d, %d\n", d.rs1, d.rs2, d.imm);
             break;
 
         case LUI:
             core -> regs[d.rd] = d.imm;
-            printf("LUI x%d, 0x%x\n", d.rd, d.imm); break;
+            printf("LUI x%d, 0x%x\n", d.rd, d.imm);
+            break;
+
         case AUIPC:
             core -> regs[d.rd] = (core -> pc - 4) + d.imm;
-            printf("AUIPC x%d, 0x%x\n", d.rd, d.imm); break;
+            printf("AUIPC x%d, 0x%x\n", d.rd, d.imm);
+            break;
+
 
         case JAL:
             core -> regs[d.rd] = core -> pc;
@@ -385,26 +461,63 @@ void execute(RISC_V *core, DecodedInstr d) {
             {
                 int dir = d.rs2;
 
-                /* in_ch e' NULL solo su un core fuori griglia (modalita' singolo
-                   core): un ingresso scollegato e' un canale eternamente vuoto,
-                   ISRDY da' 0 e IN da' 0. In griglia sono tutti cablati, bordo
-                   compreso, quindi qui non cambia niente. */
+                /*
+
+                    in_ch è NULL solo su un core fuori griglia (modalità single-core):
+                    un ingresso scollegato è un canale eternamente vuoto,
+                    ISRDY dà 0 e IN dà 0. In griglia sono tutti cablati, bordo
+                    compreso, quindi qui non cambia niente.
+
+                */
                 Channel *in = core -> in_ch[dir];
 
-                if (d.funct3 == 0x0) { //IN
+                /*
+
+                    Modalità senza backpressure (NOBP=1): il canale degrada a un
+                    registro senza handshake, cioè il systolic in lockstep puro
+                    che il ready bit sostituisce.
+                    OUT sovrascrive anche uno slot non ancora letto, SETRDY non
+                    fallisce mai, ISRDY dice sempre di sì.
+                    Il doppio buffer data/data_next resta, quindi fra le
+                    due modalità cambia SOLO il controllo di flusso: la latenza
+                    di un ciclo per hop e l'ordine di visibilità sono identici.
+                    Serve a far perdere dati, non a funzionare: in pratica utilizzato
+                    solo per avere un confronto con gli altri dati.
+
+                */
+                if (nobp()) {
+                    if (d.funct3 == 0x0){
+                        core -> regs[d.rd] = in ? in -> data : 0;          /* IN */
+                    }
+                    else if (d.funct3 == 0x1){
+                        core -> out_ch[dir].data_next = core -> regs[d.rs1]; /* OUT */
+                    }
+                    else {
+                        core -> regs[d.rd] = 1;   /* ISRDY e SETRDY: sempre */
+                    }
+                    break;
+                }
+
+                if (d.funct3 == 0x0) { /* IN */
                     core  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
                     printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, core -> regs[d.rd]);
                 }
-                else if (d.funct3 == 0x1) { //OUT
+                else if (d.funct3 == 0x1) { /* OUT */
                     ch_write(&core->out_ch[dir], core->regs[d.rs1]);
                     printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, core -> regs[d.rs1]);
                 }
-                else if(d.funct3 == 0x2) { //ISRDY
+                else if(d.funct3 == 0x2) { /* ISRDY */
                     core  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
+                    if (!core -> regs[d.rd]) {
+                        core -> attese++;
+                    }
                     printf("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, core->regs[d.rd]);
                 }
-                else if(d.funct3 == 0x3) { //SETRDY
+                else if(d.funct3 == 0x3) { /* SETRDY */
                     core  ->  regs[d.rd] = ch_setrdy(&core  ->  out_ch[dir]);
+                    if (!core -> regs[d.rd]) {
+                        core -> ritentativi++;
+                    }
                     printf("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, core->regs[d.rd]);
                 }
                 break;
@@ -418,15 +531,17 @@ void execute(RISC_V *core, DecodedInstr d) {
         default:
             core -> running = false;
             printf("[core %d] pc=0x%08x instr=0x%08x opcode 0x%02x non implementato -> stop\n",
-                   core->core_id, core->pc - 4, core->current_inst, d.opcode);
-            break;        
+                   core -> core_id, core -> pc - 4, core -> current_inst, d.opcode);
+            break;
     }
 
     core -> regs[0] = 0;
 }
 
 void execute_step(RISC_V *core) {
-    if (!core -> running) return;
+    if (!core -> running) {
+        return;
+    }
 
     core -> current_inst = fetch(core);
 

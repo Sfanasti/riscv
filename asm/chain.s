@@ -1,34 +1,40 @@
 .option norvc
 .include "macros.s"
 
+# "Generalizzazione" di prodcons.s
 # Catena su griglia 1xC: source -> forwarding ... forwarding -> sink.
 # Il ruolo viene dalla POSIZIONE, non da un id:
-#   colonna 0        source: manda 1..QUANTI a EST
-#   colonna cols-1   sink:    legge da OVEST e accumula in s1
-#   in mezzo         forwarding:  legge da OVEST e ripubblica a EST
+#   colonna 0 --> source: manda 1..QUANTI a EST
+#   colonna cols-1 --> sink:legge da OVEST e accumula in s1
+#   in mezzo --> forwarding: legge da OVEST e ripubblica a EST
 #
 # Atteso: s1 del sink == QUANTI*(QUANTI+1)/2 per QUALSIASI numero di colonne
-# e QUALSIASI valore di RITARDO. La catena cambia la latenza, mai il risultato.
+# e QUALSIASI valore di RITARDO. La catena cambia la latenza ma non deve
+# cambiare il risultato.
 #
 # Con C=2 non ci sono nodi di mezzo e il programma degenera in prodcons.s.
 #
-# Registri di identita' precaricati da grid_init:
+# Registri di identità precaricati da grid_init:
 #   a0 = riga   a1 = colonna   a2 = righe totali   a3 = colonne totali
 #
 # Contatori per il debug, nella stampa finale di ogni cella:
-#   s3 = SETRDY rifiutate (source e forwarding: quanto il nodo e' stato frenato)
-#   s4 = ISRDY a vuoto    (forwarding e sink: quanto e' rimasto a digiuno)
+#   s3 = SETRDY rifiutate (source e forwarding: quanto il nodo è stato frenato)
+#   s4 = ISRDY a vuoto    (forwarding e sink: quanto è rimasto a digiuno)
 # Su una catena lunga si legge dove sta il collo di bottiglia: la cella con s3
-# alto e s4 basso e' quella che aspetta il vicino a valle.
+# alto e s4 basso è quella che aspetta il vicino a valle.
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   QUANTI    quanti valori attraversano la catena                    default 5
-#   RITARDO   cicli sprecati dal sink prima di ogni lettura          default 0
+#   QUANTI    quanti valori attraversano la catena --> default 5
+#   RITARDO   cicli sprecati dal sink prima di ogni lettura --> default 0
 #
 # USO:
 #   make run  P=chain R=1 C=6 N=4000 DEFS="--defsym RITARDO=10"
 #   make step P=chain R=1 C=4 N=60
-#   make test-chain [QUANTI=10]
+#   make test-chain [QUANTI=10]     sweep 6 RITARDI x 4 lunghezze, assert sulla somma
+#
+# Come in prodcons.s, RITARDO non si passa da qui: lo fa variare il Makefile
+# (RITARDI = 0 1 4 8 25 60), e COLONNE = 2 3 5 12 gli si moltiplica sopra, perché
+# la somma non deve dipendere né dalla velocità dei nodi né dalla lunghezza.
 #
 # N va dimensionato su C e RITARDO insieme: ogni hop aggiunge latenza. Se la
 # stampa finale dice "limite cicli raggiunto" i registri non sono un risultato.
@@ -65,7 +71,7 @@ source:
     ecall
 
 # ---- colonne intermedie: OVEST -> EST, QUANTI volte ----
-# Sa quando fermarsi perche' QUANTI e' una costante di build nota a tutti:
+# Sa quando fermarsi perché QUANTI è una costante di build nota a tutti:
 # non serve un valore sentinella nel flusso dati.
 forwarding:
     li     s2, QUANTI
@@ -73,7 +79,7 @@ forwarding:
     li     s4, 0
 1:  ISRDY  t0, OVEST
     bnez   t0, 2f
-    addi   s4, s4, 1       # niente in arrivo -> conta e rispin
+    addi   s4, s4, 1       # niente in arrivo -> conta e respin
     j      1b
 2:  IN     t1, OVEST
 3:  OUT    t1, EST

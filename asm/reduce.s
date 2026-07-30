@@ -2,23 +2,23 @@
 .include "macros.s"
 
 # Riduzione su griglia RxC: la somma dei contributi di TUTTE le celle finisce
-# fuori dal bordo sud-est. Contributo della cella (r,c) = r+c, cosi' il totale
+# fuori dal bordo sud-est. Contributo della cella (r,c) = r+c, così il totale
 # atteso si ricava dalla forma della griglia invece di essere scritto a mano, e
 # una cella cablata al posto sbagliato cambia il risultato.
 #
 # Due fasi, come in ogni riduzione ad albero su array:
-#   1. ogni RIGA si somma da OVEST a EST      -> l'ultima colonna ha i totali di riga
-#   2. l'ULTIMA COLONNA si somma da NORD a SUD -> (R-1,C-1) ha il totale generale
-# Il percorso e' lungo (C-1)+(R-1) hop invece dei log di un albero vero, ma qui
-# le celle possono parlare solo con i quattro vicini: l'albero non e' cablabile.
+#   1. ogni RIGA si somma da OVEST a EST --> l'ultima colonna ha i totali di riga
+#   2. l'ULTIMA COLONNA si somma da NORD a SUD --> (R-1,C-1) ha il totale generale
+# Il percorso è lungo (C-1)+(R-1) hop invece dei log di un albero vero, ma qui
+# le celle possono parlare solo con i quattro vicini: l'albero non è cablabile.
 #
-# Nessun caso speciale per l'ultima riga: il suo SUD e' un canale di bordo, e a
-# drenarlo e' l'host esattamente come farebbe la cella sotto se esistesse. E'
-# li' che si legge il risultato (grid_pop, vedi tests/test_reduce.c).
+# Nessun caso speciale per l'ultima riga: il suo SUD è un canale di bordo, e a
+# drenarlo è l'host esattamente come farebbe la cella sotto se esistesse. è
+# lì che si legge il risultato (grid_pop, si veda tests/test_reduce.c).
 # Nessun caso speciale nemmeno agli ingressi: la colonna 0 e la riga 0 non
-# aspettano un predecessore, lo sanno dalla propria identita' cablata.
+# aspettano un predecessore, lo sanno dalla propria identità cablata.
 #
-# Identita' precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
+# Identità precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
 # s1 = accumulatore (parziale di riga, poi parziale di colonna)
 #
 # USO: make run P=reduce R=3 C=4 N=400
@@ -37,7 +37,7 @@ _start:
 
 riga_inizio:
     addi    t2, a3, -1
-    beq     a1, t2, fase2       # ultima colonna: s1 e' il totale della riga
+    beq     a1, t2, fase2       # ultima colonna: s1 è il totale della riga
 2:  OUT     s1, EST
     SETRDY  t0, EST
     beqz    t0, 2b

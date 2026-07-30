@@ -1,15 +1,15 @@
-/* Verifica end-to-end di asm/reduce.s su griglia RxC.
-   Uso: test_reduce <file.o> <righe> <colonne>
+/*
+    Verifica end-to-end di asm/reduce.s su griglia RxC.
+    Uso: test_reduce <file.o> <righe> <colonne>
 
-   Il totale atteso non e' un argomento: lo ricava il test dalla forma della
-   griglia, come fa il Makefile con la somma di prodcons. Un valore scritto a
-   mano si adatterebbe al bug invece di scoprirlo.
+    Il totale atteso lo ricava il test dalla forma della griglia, come fa 
+    il Makefile con la somma di prodcons.
 
-   Tre asserzioni, dalla piu' locale alla piu' globale, cosi' un fallimento
-   dice DOVE si e' rotta la riduzione e non solo che il totale non torna:
-     - ogni cella non-ultima-colonna ha il prefisso della sua riga
-     - ogni cella dell'ultima colonna ha le righe 0..r sommate per intero
-     - dal bordo sud-est esce un solo valore, ed e' il totale */
+    Tre asserzioni:
+      - ogni cella non-ultima-colonna ha il prefisso della sua riga
+      - ogni cella dell'ultima colonna ha le righe 0..r sommate per intero
+      - dal bordo sud-est esce un solo valore, ed è il totale
+*/
 
 #include <assert.h>
 #include <stdio.h>
@@ -19,7 +19,7 @@
 #include "elf.h"
 
 #define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9                /* l'accumulatore (vedi REG_NAMES in core.c) */
+#define S1 9                /* l'accumulatore (si veda REG_NAMES in core.c) */
 
 int main(int argc, char **argv) {
     if (argc != 4) {
@@ -37,14 +37,19 @@ int main(int argc, char **argv) {
 
     Grid g;
     grid_init(&g, rows, cols, h -> e_entry);
-    for (int r = 0; r < rows; r++)
-        for (int c = 0; c < cols; c++)
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
             carica_elf_in_core(grid_at(&g, r, c), elf, h);
+        }
+    }
 
-    freopen("/dev/null", "w", stdout);   /* la traccia per istruzione qui e' rumore */
+    /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
+    freopen("/dev/null", "w", stdout);
 
-    /* il risultato esce dal SUD dell'angolo sud-est: senza qualcuno che lo
-       consuma quella cella resterebbe bloccata sulla propria SETRDY */
+    /*
+        il risultato esce dal SUD dell'angolo sud-est: senza qualcuno che lo
+        consuma quella cella resterebbe bloccata sulla propria SETRDY
+    */
     long totale = 0;
     int  usciti = 0, cicli = 0, vivi;
     do {
@@ -54,11 +59,15 @@ int main(int argc, char **argv) {
         grid_step(&g);
         cicli++;
         vivi = 0;
-        for (int i = 0; i < rows * cols; i++) vivi |= g.cores[i].running;
+        for (int i = 0; i < rows * cols; i++) {
+            vivi |= g.cores[i].running;
+        }
     } while (vivi && cicli < MAX_CICLI);
 
-    /* l'ultima pubblicazione viene committata nel giro in cui il core si ferma:
-       un pop in piu' per raccoglierla */
+    /*
+        l'ultima pubblicazione viene committata nel giro in cui il core si ferma:
+        serve dunque un pop in più per raccoglierla
+    */
     {
         uint32_t v;
         if (grid_pop(&g, rows - 1, cols - 1, SUD, &v)) { totale = (int32_t)v; usciti++; }
@@ -80,15 +89,19 @@ int main(int argc, char **argv) {
     /* parziali di colonna: la cella (r,C-1) ha sommato le righe 0..r per intero */
     long atteso = 0;
     for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) atteso += r + c;
+        for (int c = 0; c < cols; c++) {
+            atteso += r + c;
+        }
         assert((long)(int32_t)grid_at(&g, r, cols - 1) -> regs[S1] == atteso);
     }
 
-    assert(usciti == 1);        /* un solo risultato: ne' perso ne' duplicato */
+    assert(usciti == 1);        /* un solo risultato: né perso né duplicato */
     assert(totale == atteso);
 
-    fprintf(stderr, "%-14s %dx%-3d ok  totale=%ld  cicli=%d\n",
-            argv[1], rows, cols, totale, cicli);
+    unsigned ritentativi, attese;
+    grid_spin(&g, &ritentativi, &attese);
+    fprintf(stderr, "%d,%d,%d,%u,%u,%ld\n",
+            rows, cols, cicli, ritentativi, attese, totale);
 
     grid_free(&g);
     free(elf);

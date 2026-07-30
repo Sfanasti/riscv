@@ -1,11 +1,11 @@
 .option norvc
 
-# Verifica di lw/sw: la RAM del core e' byte-indirizzata come la vede il
+# Verifica di lw/sw: la RAM del core è byte-indirizzata come la vede il
 # caricatore ELF, non indicizzata a parole, e un accesso fuori dai 16 KB ferma
 # il core invece di sconfinare nella cella successiva dell'array flat.
 #
 # Un solo assert copre tutti i passi: ogni controllo che fallisce salta a 'ko',
-# che azzera s1, e il test e' "s1 == ATTESO alla fine".
+# che azzera s1, e il test è "s1 == ATTESO alla fine".
 #
 # USO: make test-mem
 
@@ -19,7 +19,7 @@ _start:
     li      t0, ATTESO
     sw      t0, 0(t1)
 
-# 1. lw rilegge esattamente cio' che sw ha scritto
+# 1. lw rilegge esattamente ciò che sw ha scritto
     lw      t2, 0(t1)
     bne     t2, t0, ko
 
@@ -60,7 +60,7 @@ _start:
 
     li      s1, ATTESO              # tutti i controlli passati
 
-# 6. l'ultimo accesso e' fuori RAM (16384 = primo byte oltre la fine): il core
+# 6. l'ultimo accesso è fuori RAM (16384 = primo byte oltre la fine): il core
 #    deve fermarsi QUI, e s1 resta buono. Se la guardia manca, l'esecuzione
 #    prosegue e le due istruzioni dopo azzerano s1, facendo fallire il test.
     li      t1, 16384

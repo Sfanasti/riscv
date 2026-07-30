@@ -1,13 +1,15 @@
-/* Verifica end-to-end di asm/broadcast.s su griglia RxC.
-   Uso: test_broadcast <file.o> <righe> <colonne> <valore atteso>
+/*
+    Verifica end-to-end di asm/broadcast.s su griglia RxC.
+    Uso: test_broadcast <file.o> <righe> <colonne> <valore atteso>
 
-   Differenza rispetto a test_catena.c: li' il risultato stava in un punto
-   solo (il sink), qui l'asserzione e' su TUTTE le RxC celle — "raggiunge
-   tutti" e' proprio la proprieta' da dimostrare.
+    Differenza rispetto a test_catena.c: lì il risultato stava in un punto
+    solo (il sink), qui l'asserzione è su TUTTE le RxC celle: va dimostrato
+    che raggiunge tutti.
 
-   Stampa anche la mappa delle attese (s4), che disegna l'onda diagonale: il
-   valore deve crescere con r+c. Se una cella lontana ha aspettato meno di una
-   vicina, la propagazione non e' quella che credi. */
+    Stampa anche la mappa delle attese (s4), che disegna l'onda diagonale: il
+    valore deve crescere con r+c. Se una cella lontana ha aspettato meno di una
+    vicina, la propagazione è sbagliata.
+*/
 
 #include <assert.h>
 #include <stdio.h>
@@ -18,7 +20,7 @@
 
 #define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
 
-/* indici dei registri (vedi REG_NAMES in core.c) */
+/* indici dei registri (si veda REG_NAMES in core.c) */
 #define A0 10   /* riga */
 #define A1 11   /* colonna */
 #define A2 12   /* righe totali */
@@ -43,22 +45,29 @@ int main(int argc, char **argv) {
 
     Grid g;
     grid_init(&g, rows, cols, h -> e_entry);
-    for (int r = 0; r < rows; r++)
-        for (int c = 0; c < cols; c++)
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
             carica_elf_in_core(grid_at(&g, r, c), elf, h);
+        }
+    }
 
-    freopen("/dev/null", "w", stdout);   /* la traccia per istruzione qui e' rumore */
+    /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
+    freopen("/dev/null", "w", stdout);
 
     int cicli = 0, vivi;
     do {
         grid_step(&g);
         cicli++;
         vivi = 0;
-        for (int i = 0; i < rows * cols; i++) vivi |= g.cores[i].running;
+        for (int i = 0; i < rows * cols; i++) {
+            vivi |= g.cores[i].running;
+        }
     } while (vivi && cicli < MAX_CICLI);
 
-    /* il rischio vero di questo programma e' che una cella resti in attesa di
-       un vicino che non le mandera' mai niente: si manifesta qui */
+    /*
+        il rischio vero di questo programma è che una cella resti in attesa di
+        un vicino che non le manderà mai niente: si manifesta qui
+    */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
@@ -66,24 +75,34 @@ int main(int argc, char **argv) {
         for (int c = 0; c < cols; c++) {
             RISC_V *k = grid_at(&g, r, c);
 
-            /* identita' cablata */
+            /* identità cablata */
             assert((int)k -> regs[A0] == r);
             assert((int)k -> regs[A1] == c);
             assert((int)k -> regs[A2] == rows);
             assert((int)k -> regs[A3] == cols);
 
-            /* il dato e' arrivato fin qui */
+            /* il dato è arrivato fin qui */
             assert((int)k -> regs[S1] == atteso);
         }
     }
 
-    fprintf(stderr, "%-14s %dx%-3d ok  valore=%d  cicli=%d\n",
-            argv[1], rows, cols, atteso, cicli);
-    for (int r = 0; r < rows; r++) {
-        fprintf(stderr, "%16s s4:", "");
-        for (int c = 0; c < cols; c++)
-            fprintf(stderr, " %5u", grid_at(&g, r, c) -> regs[S4]);
-        fprintf(stderr, "\n");
+    unsigned ritentativi, attese;
+    grid_spin(&g, &ritentativi, &attese);
+    fprintf(stderr, "%d,%d,%d,%u,%u,%d\n", rows, cols, cicli, ritentativi, attese, atteso);
+
+    /*
+        La mappa cella per cella dell'attesa: cresce con r+c, è la forma
+        dell'onda che attraversa la griglia. Una riga per riga della griglia,
+        quindi va tolta di mezzo quando l'uscita deve restare un CSV.
+    */
+    if (!getenv("CSV")) {
+        for (int r = 0; r < rows; r++) {
+            fprintf(stderr, "%16s s4:", "");
+            for (int c = 0; c < cols; c++) {
+                fprintf(stderr, " %5u", grid_at(&g, r, c) -> regs[S4]);
+            }
+            fprintf(stderr, "\n");
+        }
     }
 
     grid_free(&g);
