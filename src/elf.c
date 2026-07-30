@@ -22,7 +22,7 @@ uint8_t *load_elf(const char *path, long *size) {
     return buffer;
 }
 
-void carica_elf_in_core(RISCV_Core *core, uint8_t *elf_content, Elf32_Ehdr *header) {
+void carica_elf_in_core(RISC_V *core, uint8_t *elf_content, Elf32_Ehdr *header) {
     Elf32_Shdr *sections = (Elf32_Shdr *)(elf_content + header->e_shoff);
 
     for (int i = 0; i < header->e_shnum; i++) {

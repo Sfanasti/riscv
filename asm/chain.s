@@ -1,13 +1,13 @@
 .option norvc
 .include "macros.s"
 
-# Catena su griglia 1xC: sorgente -> inoltro ... inoltro -> pozzo.
+# Catena su griglia 1xC: source -> forwarding ... forwarding -> sink.
 # Il ruolo viene dalla POSIZIONE, non da un id:
-#   colonna 0        sorgente: manda 1..QUANTI a EST
-#   colonna cols-1   pozzo:    legge da OVEST e accumula in s1
-#   in mezzo         inoltro:  legge da OVEST e ripubblica a EST
+#   colonna 0        source: manda 1..QUANTI a EST
+#   colonna cols-1   sink:    legge da OVEST e accumula in s1
+#   in mezzo         forwarding:  legge da OVEST e ripubblica a EST
 #
-# Atteso: s1 del pozzo == QUANTI*(QUANTI+1)/2 per QUALSIASI numero di colonne
+# Atteso: s1 del sink == QUANTI*(QUANTI+1)/2 per QUALSIASI numero di colonne
 # e QUALSIASI valore di RITARDO. La catena cambia la latenza, mai il risultato.
 #
 # Con C=2 non ci sono nodi di mezzo e il programma degenera in prodcons.s.
@@ -16,14 +16,14 @@
 #   a0 = riga   a1 = colonna   a2 = righe totali   a3 = colonne totali
 #
 # Contatori per il debug, nella stampa finale di ogni cella:
-#   s3 = SETRDY rifiutate (sorgente e inoltro: quanto il nodo e' stato frenato)
-#   s4 = ISRDY a vuoto    (inoltro e pozzo: quanto e' rimasto a digiuno)
+#   s3 = SETRDY rifiutate (source e forwarding: quanto il nodo e' stato frenato)
+#   s4 = ISRDY a vuoto    (forwarding e sink: quanto e' rimasto a digiuno)
 # Su una catena lunga si legge dove sta il collo di bottiglia: la cella con s3
 # alto e s4 basso e' quella che aspetta il vicino a valle.
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
 #   QUANTI    quanti valori attraversano la catena                    default 5
-#   RITARDO   cicli sprecati dal pozzo prima di ogni lettura          default 0
+#   RITARDO   cicli sprecati dal sink prima di ogni lettura          default 0
 #
 # USO:
 #   make run  P=chain R=1 C=6 N=4000 DEFS="--defsym RITARDO=10"
@@ -45,12 +45,12 @@
 _start:
     mv     s0, a1          # s0 = la mia colonna
     addi   s5, a3, -1      # s5 = indice dell'ultima colonna
-    beqz   s0, sorgente
-    beq    s0, s5, pozzo
-    j      inoltro
+    beqz   s0, source
+    beq    s0, s5, sink
+    j      forwarding
 
 # ---- colonna 0: genera 1..QUANTI verso EST ----
-sorgente:
+source:
     li     s1, 1           # valore corrente
     li     s2, QUANTI      # quanti ne restano
     li     s3, 0           # SETRDY rifiutate
@@ -67,7 +67,7 @@ sorgente:
 # ---- colonne intermedie: OVEST -> EST, QUANTI volte ----
 # Sa quando fermarsi perche' QUANTI e' una costante di build nota a tutti:
 # non serve un valore sentinella nel flusso dati.
-inoltro:
+forwarding:
     li     s2, QUANTI
     li     s3, 0
     li     s4, 0
@@ -86,13 +86,13 @@ inoltro:
     ecall
 
 # ---- ultima colonna: accumula in s1 ----
-pozzo:
+sink:
     li     s1, 0           # somma
     li     s2, QUANTI
     li     s4, 0
 1:
 .if RITARDO > 0
-    li     t2, RITARDO     # pozzo lento: mette in backpressure tutta la catena
+    li     t2, RITARDO     # sink lento: mette in backpressure tutta la catena
 2:  addi   t2, t2, -1
     bnez   t2, 2b
 .endif

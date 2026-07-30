@@ -41,7 +41,7 @@ typedef struct {
 } Elf32_Shdr;
 
 uint8_t *load_elf(const char *path, long *size);
-void carica_elf_in_core(RISCV_Core *core, uint8_t *elf_content, Elf32_Ehdr *header);
+void carica_elf_in_core(RISC_V *core, uint8_t *elf_content, Elf32_Ehdr *header);
 void check_elf(uint8_t *content);
 
 #endif

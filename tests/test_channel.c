@@ -49,6 +49,19 @@ int main(void) {
     ch_commit(&c);
     assert(!ch_isrdy(&c));                 /* niente 7 duplicato */
 
+    /* Una sola pubblicazione per ciclo. Il caso lo produce solo l'host (un
+       core esegue una istruzione per ciclo, non puo' fare due OUT+SETRDY):
+       la seconda coppia va rifiutata, non deve sostituire il valore gia'
+       pubblicato ne' riportare indietro wp_next. */
+    ch_write(&c, 1);
+    assert(ch_setrdy(&c) == 1);
+    ch_write(&c, 2);                       /* rifiutata: slot gia' impegnato */
+    assert(ch_setrdy(&c) == 0);
+    ch_commit(&c);
+    assert(ch_isrdy(&c));                  /* pubblicato una volta, non zero */
+    assert(ch_read_c(&c) == 1);            /* ed e' il primo valore, non il secondo */
+    ch_commit(&c);
+
     printf("channel: OK\n");
     return 0;
 }

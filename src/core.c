@@ -14,7 +14,7 @@ static const char *REG_NAMES[32] = {
 
 static const char *DIR_NAMES[4] = { "NORD", "EST", "SUD", "OVEST" };
 
-void print_state(RISCV_Core *core) {
+void print_state(RISC_V *core) {
     printf("\n--- STATO CORE [%d] | PC: 0x%08x | INSTR: 0x%08x ---\n",
            core -> core_id, core -> pc, core -> current_inst);
 
@@ -36,7 +36,7 @@ void print_state(RISCV_Core *core) {
     printf("\n");
 }
 
-void init_core(RISCV_Core *core, uint32_t start_pc, int id) {
+void init_core(RISC_V *core, uint32_t start_pc, int id) {
     for (int i = 0; i < 32; i++) core -> regs[i] = 0;
 
     for (int i = 0; i < 4096; i++) core -> memory[i] = 0;
@@ -54,7 +54,7 @@ void init_core(RISCV_Core *core, uint32_t start_pc, int id) {
        scrive grid_init: qui non si sa niente della topologia */
 }
 
-uint32_t fetch(RISCV_Core *core) {
+uint32_t fetch(RISC_V *core) {
     if (core -> pc / 4 >= 4096) {
         printf("Errore: PC fuori dai limiti della memoria!\n");
         core -> running = 0;
@@ -122,7 +122,26 @@ DecodedInstr decode(uint32_t instr) {
     return d;
 }
 
-void execute(RISCV_Core *core, DecodedInstr d) {
+/* Larghezza in byte per funct3 di LOAD/STORE; 0 = codifica non implementata.
+   LB LH LW - LBU LHU - -                                                     */
+static const int LS_WIDTH[8] = { 1, 2, 4, 0, 1, 2, 0, 0 };
+
+/* La RAM del core e' byte-indirizzata (come la vede il caricatore ELF, che fa
+   memcpy su (uint8_t*)memory + sh_addr): 'memory' e' uint32_t[] solo per
+   comodita' del fetch. L'indirizzo NON e' quindi un indice di parola.
+   Senza questo controllo uno store oltre i 16 KB finiva nel core successivo
+   dell'array flat di grid.c, corrompendolo in silenzio. */
+static uint8_t *mem_ptr(RISC_V *core, uint32_t addr, int width) {
+    if (width == 0 || addr > (uint32_t)sizeof(core -> memory) - (uint32_t)width) {
+        printf("[core %d] accesso a 0x%08x (%d byte) fuori RAM -> stop\n",
+               core -> core_id, addr, width);
+        core -> running = false;
+        return NULL;
+    }
+    return (uint8_t *)core -> memory + addr;
+}
+
+void execute(RISC_V *core, DecodedInstr d) {
     uint32_t address;
     uint32_t val1, val2;
     int branch_taken;
@@ -130,44 +149,52 @@ void execute(RISCV_Core *core, DecodedInstr d) {
     switch (d.opcode) {
 
         case LOAD:
-            address = core -> regs[d.rs1] + d.imm;
-            switch (d.funct3) {
-                case 0x0:
-                    core -> regs[d.rd] = (int8_t)core -> memory[address];
-                    printf("LB x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+            {
+                address = core -> regs[d.rs1] + d.imm;
+                uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
+                if (!p) break;
 
-                case 0x1:
-                    core -> regs[d.rd] = *(int16_t *)(&core -> memory[address]);
-                    printf("LH x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                /* memcpy e non un cast a int32_t*: l'indirizzo puo' essere
+                   disallineato e il cast sarebbe UB */
+                int16_t h; int32_t w;
+                switch (d.funct3) {
+                    case 0x0:
+                        core -> regs[d.rd] = (uint32_t)(int32_t)(int8_t)*p;
+                        printf("LB x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
-                case 0x2:
-                    core -> regs[d.rd] = *(int32_t *)(&core -> memory[address]);
-                    printf("LW x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                    case 0x1:
+                        memcpy(&h, p, 2);
+                        core -> regs[d.rd] = (uint32_t)(int32_t)h;
+                        printf("LH x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
-                case 0x4:
-                    core -> regs[d.rd] = (uint8_t)core -> memory[address];
-                    printf("LBU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                    case 0x2:
+                        memcpy(&w, p, 4);
+                        core -> regs[d.rd] = (uint32_t)w;
+                        printf("LW x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
-                case 0x5:
-                    core -> regs[d.rd] = *(uint16_t *)(&core -> memory[address]);
-                    printf("LHU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                    case 0x4:
+                        core -> regs[d.rd] = *p;
+                        printf("LBU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+
+                    case 0x5:
+                        memcpy(&h, p, 2);
+                        core -> regs[d.rd] = (uint16_t)h;
+                        printf("LHU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                }
             }
             break;
 
         case STORE:
-            address = core -> regs[d.rs1] + d.imm;
-            switch (d.funct3) {
-                case 0x0:
-                    core -> memory[address] = (uint8_t)(core -> regs[d.rs2] & 0xFF);
-                    printf("SB x%d, %d(x%d)\n", d.rs2, d.imm, d.rs1); break;
+            {
+                address = core -> regs[d.rs1] + d.imm;
+                uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
+                if (!p) break;
 
-                case 0x1:
-                    *(uint16_t *)&core -> memory[address] = (uint16_t)(core -> regs[d.rs2] & 0xFFFF);
-                    printf("SH x%d, %d(x%d)\n", d.rs2, d.imm, d.rs1); break;
-
-                case 0x2:
-                    *(uint32_t *)&core -> memory[address] = (uint32_t)core -> regs[d.rs2];
-                    printf("SW x%d, %d(x%d)\n", d.rs2, d.imm, d.rs1); break;
+                uint32_t v = core -> regs[d.rs2];
+                memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian: i byte bassi per primi */
+                printf("%s x%d, %d(x%d)\n",
+                       d.funct3 == 0x0 ? "SB" : d.funct3 == 0x1 ? "SH" : "SW",
+                       d.rs2, d.imm, d.rs1);
             }
             break;
 
@@ -358,8 +385,14 @@ void execute(RISCV_Core *core, DecodedInstr d) {
             {
                 int dir = d.rs2;
 
+                /* in_ch e' NULL solo su un core fuori griglia (modalita' singolo
+                   core): un ingresso scollegato e' un canale eternamente vuoto,
+                   ISRDY da' 0 e IN da' 0. In griglia sono tutti cablati, bordo
+                   compreso, quindi qui non cambia niente. */
+                Channel *in = core -> in_ch[dir];
+
                 if (d.funct3 == 0x0) { //IN
-                    core  ->  regs[d.rd] = ch_read_c(core  ->  in_ch[dir]);
+                    core  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
                     printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, core -> regs[d.rd]);
                 }
                 else if (d.funct3 == 0x1) { //OUT
@@ -367,7 +400,7 @@ void execute(RISCV_Core *core, DecodedInstr d) {
                     printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, core -> regs[d.rs1]);
                 }
                 else if(d.funct3 == 0x2) { //ISRDY
-                    core  ->  regs[d.rd] = ch_isrdy(core  ->  in_ch[dir]);
+                    core  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
                     printf("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, core->regs[d.rd]);
                 }
                 else if(d.funct3 == 0x3) { //SETRDY
@@ -392,7 +425,7 @@ void execute(RISCV_Core *core, DecodedInstr d) {
     core -> regs[0] = 0;
 }
 
-void execute_step(RISCV_Core *core) {
+void execute_step(RISC_V *core) {
     if (!core -> running) return;
 
     core -> current_inst = fetch(core);

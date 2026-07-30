@@ -1,4 +1,4 @@
-# Istruzioni custom dell'array NESO - opcode custom-0 = 0x0B (spazio libero RISC-V)
+# Istruzioni custom dell'array NESO - opcode custom-0 = 0x0B (spazio libero RISC_V)
 # Formato I-type:   .insn i opcode, funct3, rd, rs1, imm
 #   | imm[11:0] | rs1 | funct3 | rd | opcode |
 #   |  31..20   |19.15| 14..12 |11.7|  6..0  |

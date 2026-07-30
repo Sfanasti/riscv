@@ -41,10 +41,10 @@
 .global _start
 _start:
     mv     s0, a1          # s0 = la mia colonna: a1 lo puo' sporcare chiunque
-    beqz   s0, produttore  # colonna 0 -> produce
-    j      consumatore
+    beqz   s0, producer  # colonna 0 -> produce
+    j      consumer
 
-produttore:
+producer:
     li     s1, 1           # valore corrente
     li     s2, QUANTI      # quanti ne restano
     li     s3, 0           # RITENTATIVI: quante SETRDY il canale ha rifiutato
@@ -58,13 +58,13 @@ produttore:
     bnez   s2, 1b
     ecall
 
-consumatore:
+consumer:
     li     s1, 0           # somma
     li     s2, QUANTI
     li     s4, 0           # ATTESE: quanti cicli ha trovato il canale vuoto
 2:
 .if RITARDO > 0
-    li     t2, RITARDO     # consumatore lento: mette il produttore in backpressure
+    li     t2, RITARDO     # consumer lento: mette il producer in backpressure
 3:  addi   t2, t2, -1
     bnez   t2, 3b
 .endif

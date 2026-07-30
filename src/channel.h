@@ -48,9 +48,14 @@ static inline uint32_t ch_read_c(Channel *c) {
     return v;
 }
 
-//le scritture vanno SEMPRE nel next, mai nell'attuale
+/* Le scritture vanno SEMPRE nel next, mai nell'attuale.
+   Il canale accetta al massimo una pubblicazione per ciclo: dopo il commit
+   wp_next == wp sempre, quindi wp_next != wp significa "gia' impegnato in
+   questo ciclo". Un core non ci arriva (esegue una istruzione per ciclo), ma
+   l'host che alimenta il bordo puo' chiamare grid_push due volte di fila e
+   senza questa guardia il primo valore sparirebbe senza dirlo a nessuno. */
 static inline void ch_write(Channel *c, uint32_t v) {
-    if (ch_iswrt(c)) {
+    if (ch_iswrt(c) && c -> wp_next == c -> wp) {
         c -> data_next = v;
         c -> pending = 1;
     }

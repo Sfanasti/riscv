@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
 
     unsigned ritentativi = 0, attese = 0;
     for (int c = 0; c < cols; c++) {
-        RISCV_Core *k = grid_at(&g, 0, c);
+        RISC_V *k = grid_at(&g, 0, c);
 
         /* identita' cablata: ogni cella sa dove si trova */
         assert(k -> regs[A0] == 0);

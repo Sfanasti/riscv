@@ -19,7 +19,7 @@ static void wait_enter(void) {
     while ((c = getchar()) != '\n' && c != EOF);
 }
 
-void run_single_core(RISCV_Core *core) {
+void run_single_core(RISC_V *core) {
     printf("\n[SINGLE CORE] Premi INVIO per ogni passo. Ctrl+C per uscire.\n");
 
     while (core -> running) {
@@ -38,7 +38,8 @@ static void grid_print(Grid *grid) {
 
 void run_grid(Grid *grid, int cicli) {
     int passo_passo = getenv("STEP") != NULL;   // STEP=1 -> un ciclo per INVIO
-    int step = 0;
+    const char *bordo = getenv("BORDO");        // BORDO=<n> -> contorno costante
+    int step = 0, usciti = 0;
 
     while (step < cicli && grid_any_running(grid)) {
         if (passo_passo) {
@@ -46,12 +47,28 @@ void run_grid(Grid *grid, int cicli) {
             grid_print(grid);
             wait_enter();
         }
+
+        /* L'host prima del passo: alimenta il perimetro. Il contorno costante
+           e' il caso dello stencil (Dirichlet); un contorno che varia per
+           cella o nel tempo si scrive con grid_push, vedi tests/test_bordo.c.
+           Senza BORDO i canali di bordo restano vuoti per sempre, cioe' un
+           bordo aperto da cui non arriva mai niente. */
+        if (bordo) grid_border_fill(grid, (uint32_t)strtoul(bordo, NULL, 0));
+
+        /* Il drenaggio non e' opzionale come l'alimentazione: un OUT di
+           perimetro che nessuno consuma inchioda la cella sulla propria
+           SETRDY. Si stampa solo il totale — un kernel come lo stencil, che
+           spinge fuori da tutti e quattro i lati a ogni iterazione, sommergerebbe
+           la traccia. Per un valore preciso c'e' grid_pop da C. */
+        usciti += grid_border_drain(grid);
+
         grid_step(grid);
         step++;
     }
 
-    printf("\n[GRID] fermata dopo %d cicli (%s)\n", step,
-           grid_any_running(grid) ? "limite cicli raggiunto" : "tutti i core fermi");
+    printf("\n[GRID] fermata dopo %d cicli (%s), %d valori usciti dal perimetro\n",
+           step, grid_any_running(grid) ? "limite cicli raggiunto" : "tutti i core fermi",
+           usciti);
     grid_print(grid);
 }
 
@@ -70,7 +87,7 @@ int main(int argc, char **argv) {
     printf("Entry point: 0x%08x\n", header -> e_entry);
 
     if (argc == 2) {
-        RISCV_Core core;
+        RISC_V core;
         init_core(&core, header -> e_entry, 0);
         carica_elf_in_core(&core, elf_content, header);
         run_single_core(&core);

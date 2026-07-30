@@ -17,10 +17,10 @@ typedef struct {
 
     Channel out_ch[4];
     Channel *in_ch[4];
-} RISCV_Core;
+} RISC_V;
 
-void print_state(RISCV_Core *core);
-void init_core(RISCV_Core *core, uint32_t start_pc, int id);
+void print_state(RISC_V *core);
+void init_core(RISC_V *core, uint32_t start_pc, int id);
 
 typedef struct {
     uint32_t opcode;
@@ -49,10 +49,10 @@ typedef struct {
 #define ECALL  0x73
 #define PCIO   0x0B
 
-void init_cpu(RISCV_Core *cpu);
-uint32_t fetch(RISCV_Core *cpu);
+void init_cpu(RISC_V *cpu);
+uint32_t fetch(RISC_V *cpu);
 DecodedInstr decode(uint32_t instr);
-void execute(RISCV_Core *core, DecodedInstr d);
-void execute_step(RISCV_Core *core);
+void execute(RISC_V *core, DecodedInstr d);
+void execute_step(RISC_V *core);
 
 #endif
