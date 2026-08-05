@@ -11,13 +11,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "core.h"
+#include "risc.h"
 #include "grid.h"
 #include "elf.h"
 
 #define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
 
-/* indici dei registri usati dai programmi (si veda REG_NAMES in core.c) */
+/* indici dei registri usati dai programmi (si veda REG_NAMES in risc.c) */
 #define A0 10   /* riga */
 #define A1 11   /* colonna */
 #define A2 12   /* righe totali */
@@ -38,13 +38,13 @@ int main(int argc, char **argv) {
 
     long size;
     uint8_t *elf = load_elf(argv[1], &size);
-    check_elf(elf);
+    check_elf(elf, size);
     Elf32_Ehdr *h = (Elf32_Ehdr *)elf;
 
     Grid g;
     grid_init(&g, 1, cols, h -> e_entry);
     for (int c = 0; c < cols; c++) {
-        carica_elf_in_core(grid_at(&g, 0, c), elf, h);
+        carica_elf_in_risc(grid_at(&g, 0, c), elf, h, size);
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */

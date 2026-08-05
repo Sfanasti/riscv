@@ -74,10 +74,12 @@ iterazione:
     add     s1, s1, t3  # acc += a * b
 
 # ---- inoltro ai vicini a valle ----
-# Il respin riparte dalla OUT, non dalla SETRDY: 
-# se il canale è pieno la OUT viene rifiutata e non lascia niente in sospeso 
-# (il campo `pending` di channel.h resta 0), quindi una SETRDY ripetuta da 
-# sola non pubblicherebbe mai e la cella girerebbe a vuoto per sempre.
+# Il respin riparte dalla OUT per uniformità con gli altri kernel, non per
+# necessità: la OUT carica il registro di uscita anche a canale pieno (si veda
+# channel.h), quindi il valore resta lì e una SETRDY ripetuta da sola basterebbe
+# a consegnarlo. Ricaricare lo stesso valore a ogni giro è idempotente e costa
+# nulla, e tenere una sola forma di loop in tutti i .s vale più della istruzione
+# risparmiata.
 3:  OUT     t0, EST     # a prosegue verso destra
     SETRDY  t2, EST
     beqz    t2, 3b      # slot ancora pieno: il vicino non ha consumato

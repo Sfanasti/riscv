@@ -4,12 +4,12 @@
 # Produttore/consumatore su griglia 1x2 - il caso minimo del protocollo.
 # Per una catena più lunga si veda chain.s, che generalizza questo con i nodi
 # di inoltro in mezzo; qui restano solo i due ruoli, per leggerli puliti.
-#   colonna 0 (a1=0): manda 1..QUANTI a EST
+#   colonna 0 (a1=0): manda 1..Q a EST
 #   colonna 1 (a1=1): legge da OVEST e accumula in s1
 #
 # Registri di identità precaricati da grid_init:
 #   a0 = riga   a1 = colonna   a2 = righe totali   a3 = colonne totali
-# Atteso: s1 del nodo 1 == QUANTI*(QUANTI+1)/2, per QUALSIASI valore di RITARDO.
+# Atteso: s1 del nodo 1 == Q*(Q+1)/2, per QUALSIASI valore di RITARDO.
 #
 # Contatori per il debug, leggibili nella stampa finale:
 #   nodo 0  s3 = SETRDY rifiutate  (quanto il produttore ha aspettato: backpressure)
@@ -18,29 +18,29 @@
 # entrambi (misurato: 2 e 3); alzando RITARDO s4 va a 0 e s3 cresce.
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   QUANTI    quanti valori spedisce il produttore --> default 5
+#   Q         quanti valori spedisce il produttore --> default 5
 #   RITARDO   cicli sprecati dal consumatore prima di ogni lettura --> default 0
 #
 # USO:
 #   make run  P=prodcons R=1 C=2 N=2000 DEFS="--defsym RITARDO=25"
 #   make step P=prodcons R=1 C=2 N=40   un ciclo per INVIO
-#   make test-prodcons [QUANTI=10]      sweep dei 6 RITARDI, assert sulla somma
-#   make test-nobp     [QUANTI=10]      stesso sweep senza backpressure: lì
+#   make test-prodcons [Q=10]      sweep dei 6 RITARDI, assert sulla somma
+#   make test-nobp     [Q=10]      stesso sweep senza backpressure: lì
 #                                       la somma sbaglia, ed è il risultato
 #
 # RITARDO non si passa da qui: lo fa variare il Makefile (RITARDI = 0 1 4 8 25 60),
-# riassemblando questo file una volta per valore. Da fuori si sceglie solo QUANTI,
-# che entra sia nel --defsym sia nella somma attesa QUANTI*(QUANTI+1)/2.
+# riassemblando questo file una volta per valore. Da fuori si sceglie solo Q,
+# che entra sia nel --defsym sia nella somma attesa Q*(Q+1)/2.
 #
 # N va dimensionato sul RITARDO: se la stampa finale dice "limite cicli
 # raggiunto" l'esecuzione è stata troncata e i registri non sono un risultato.
-# Ordine di grandezza: RITARDO=25 con QUANTI=5 chiude in ~292 cicli.
+# Ordine di grandezza: RITARDO=25 con Q=5 chiude in ~292 cicli.
 
 .ifndef RITARDO
 .equ RITARDO, 0            
 .endif
-.ifndef QUANTI
-.equ QUANTI, 5             
+.ifndef Q
+.equ Q, 5             
 .endif
 
 .text
@@ -52,7 +52,7 @@ _start:
 
 producer:
     li     s1, 1           # valore corrente
-    li     s2, QUANTI      # quanti ne restano
+    li     s2, Q           # quanti ne restano
     li     s3, 0           # RITENTATIVI: quante SETRDY il canale ha rifiutato
 1:  OUT    s1, EST
     SETRDY t0, EST
@@ -66,7 +66,7 @@ producer:
 
 consumer:
     li     s1, 0           # somma
-    li     s2, QUANTI
+    li     s2, Q
     li     s4, 0           # ATTESE: quanti cicli ha trovato il canale vuoto
 2:
 .if RITARDO > 0

@@ -13,7 +13,7 @@
 # le celle possono parlare solo con i quattro vicini: l'albero non è cablabile.
 #
 # Nessun caso speciale per l'ultima riga: il suo SUD è un canale di bordo, e a
-# drenarlo è l'host esattamente come farebbe la cella sotto se esistesse. è
+# drenarlo è l'host esattamente come farebbe la cella sotto se esistesse. È
 # lì che si legge il risultato (grid_pop, si veda tests/test_reduce.c).
 # Nessun caso speciale nemmeno agli ingressi: la colonna 0 e la riga 0 non
 # aspettano un predecessore, lo sanno dalla propria identità cablata.

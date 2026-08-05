@@ -1,5 +1,5 @@
-#ifndef CPU_H
-#define CPU_H
+#ifndef RISC_H
+#define RISC_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -8,7 +8,7 @@
 #define MEM_SIZE 4096
 
 typedef struct {
-    int core_id;
+    int risc_id;
     uint32_t regs[32];
     uint32_t pc;
     uint32_t current_inst;
@@ -29,8 +29,8 @@ typedef struct {
     uint32_t ritentativi;   /* SETRDY rifiutate */
 } RISC_V;
 
-void print_state(RISC_V *core);
-void init_core(RISC_V *core, uint32_t start_pc, int id);
+void print_state(RISC_V *risc);
+void init_risc(RISC_V *risc, uint32_t start_pc, int id);
 
 typedef struct {
     uint32_t opcode;
@@ -59,10 +59,9 @@ typedef struct {
 #define ECALL  0x73
 #define PCIO   0x0B
 
-void init_cpu(RISC_V *cpu);
-uint32_t fetch(RISC_V *cpu);
+uint32_t fetch(RISC_V *risc);
 DecodedInstr decode(uint32_t instr);
-void execute(RISC_V *core, DecodedInstr d);
-void execute_step(RISC_V *core);
+void execute(RISC_V *risc, DecodedInstr d);
+void execute_step(RISC_V *risc);
 
 #endif

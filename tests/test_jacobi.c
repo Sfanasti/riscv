@@ -18,12 +18,12 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "core.h"
+#include "risc.h"
 #include "grid.h"
 #include "elf.h"
 
 #define MAX_CICLI 2000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9                /* u, il valore della cella (si veda REG_NAMES in core.c) */
+#define S1 9                /* u, il valore della cella (si veda REG_NAMES in risc.c) */
 
 /*
     Una iterazione di Jacobi, identica a quella del kernel: la condizione al
@@ -56,14 +56,14 @@ int main(int argc, char **argv) {
 
     long size;
     uint8_t *elf = load_elf(argv[1], &size);
-    check_elf(elf);
+    check_elf(elf, size);
     Elf32_Ehdr *h = (Elf32_Ehdr *)elf;
 
     Grid g;
     grid_init(&g, rows, cols, h -> e_entry);
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
-            carica_elf_in_core(grid_at(&g, r, c), elf, h);
+            carica_elf_in_risc(grid_at(&g, r, c), elf, h, size);
         }
     }
 
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
         cicli++;
         vivi = 0;
         for (int i = 0; i < n; i++) {
-            vivi |= g.cores[i].running;
+            vivi |= g.risc[i].running;
         }
     } while (vivi && cicli < MAX_CICLI);
 

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include "core.h"
+#include "risc.h"
 
 #define RAM_SIZE 16384
 #define EI_NIDENT 16
@@ -41,7 +41,7 @@ typedef struct {
 } Elf32_Shdr;
 
 uint8_t *load_elf(const char *path, long *size);
-void carica_elf_in_core(RISC_V *core, uint8_t *elf_content, Elf32_Ehdr *header);
-void check_elf(uint8_t *content);
+void carica_elf_in_risc(RISC_V *risc, uint8_t *elf_content, Elf32_Ehdr *header, long size);
+void check_elf(uint8_t *content, long size);
 
 #endif

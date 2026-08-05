@@ -1,4 +1,4 @@
-#include "core.h"
+#include "risc.h"
 #include "channel.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,11 +15,9 @@ static const char *REG_NAMES[32] = {
 static const char *DIR_NAMES[4] = { "NORD", "EST", "SUD", "OVEST" };
 
 /*
-
     NOBP=1 -> modalità senza backpressure, si veda il case PCIO. Letta una volta
     sola e non più riletta: stessa convenzione di STEP e BORDO in main.c, ma qui
     la variabile serve anche ai test, che non passano da main.
-
 */
 static int nobp(void) {
     static int v = -1;
@@ -29,12 +27,12 @@ static int nobp(void) {
     return v;
 }
 
-void print_state(RISC_V *core) {
-    printf("\n--- STATO CORE [%d] | PC: 0x%08x | INSTR: 0x%08x ---\n",
-           core -> core_id, core -> pc, core -> current_inst);
+void print_state(RISC_V *risc) {
+    printf("\n--- STATO RISC [%d] | PC: 0x%08x | INSTR: 0x%08x ---\n",
+           risc -> risc_id, risc -> pc, risc -> current_inst);
 
     for (int i = 0; i < 32; i++) {
-        printf("x%02d (%-4s) = %-10d ", i, REG_NAMES[i], (int32_t)core -> regs[i]);
+        printf("x%02d (%-4s) = %-10d ", i, REG_NAMES[i], (int32_t)risc -> regs[i]);
         if ((i + 1) % 4 == 0) {
             printf("\n");
         }
@@ -43,7 +41,7 @@ void print_state(RISC_V *core) {
     printf("IN:  ");
 
     for (int d = 0; d < 4; d++){
-        Channel *c = core -> in_ch[d];
+        Channel *c = risc -> in_ch[d];
         printf("%s=%-6d%c ", DIR_NAMES[d], c ? c -> data : 0,
                c && ch_isrdy(c) ? '*' : '.');
     }
@@ -51,52 +49,50 @@ void print_state(RISC_V *core) {
     printf("\nOUT: ");
 
     for (int d = 0; d < 4; d++){
-        printf("%s=%-6d%c ", DIR_NAMES[d], core -> out_ch[d].data,
-               ch_isrdy(&core -> out_ch[d]) ? '*' : '.');
+        printf("%s=%-6d%c ", DIR_NAMES[d], risc -> out_ch[d].data,
+               ch_isrdy(&risc -> out_ch[d]) ? '*' : '.');
         }
     printf("\n");
 }
 
-void init_core(RISC_V *core, uint32_t start_pc, int id) {
+void init_risc(RISC_V *risc, uint32_t start_pc, int id) {
     for (int i = 0; i < 32; i++){
-        core -> regs[i] = 0;
+        risc -> regs[i] = 0;
     }
 
     for (int i = 0; i < 4096; i++){
-        core -> memory[i] = 0;
+        risc -> memory[i] = 0;
     }
 
     for (int i = 0; i < 4; i++) {
-        core -> out_ch[i] = (Channel){0};
-        core -> in_ch[i] = NULL;
+        risc -> out_ch[i] = (Channel){0};
+        risc -> in_ch[i] = NULL;
     }
 
-    core -> pc = start_pc;
-    core -> running = true;
-    core -> current_inst = 0;
-    core -> core_id = id;
-    core -> attese = 0;
-    core -> ritentativi = 0;
+    risc -> pc = start_pc;
+    risc -> running = true;
+    risc -> current_inst = 0;
+    risc -> risc_id = id;
+    risc -> attese = 0;
+    risc -> ritentativi = 0;
     /*
-
         i registri di identità (a0..a3 = riga, colonna, righe, colonne) li
         scrive grid_init: qui non si sa niente della topologia
-
     */
 }
 
-uint32_t fetch(RISC_V *core) {
-    if (core -> pc / 4 >= 4096) {
+uint32_t fetch(RISC_V *risc) {
+    if (risc -> pc / 4 >= 4096) {
         printf("Errore: PC fuori dai limiti della memoria!\n");
-        core -> running = 0;
+        risc -> running = 0;
         return 0;
     }
 
-    uint32_t instr = core -> memory[core -> pc / 4];
+    uint32_t instr = risc -> memory[risc -> pc / 4];
 
-    core -> current_inst = instr;
+    risc -> current_inst = instr;
 
-    core -> pc += 4;
+    risc -> pc += 4;
 
     return instr;
 }
@@ -158,34 +154,30 @@ DecodedInstr decode(uint32_t instr) {
 }
 
 /*
-
     Larghezza in byte per funct3 di LOAD/STORE; 0 = codifica non implementata.
     LB LH LW - LBU LHU - -
-
 */
 static const int LS_WIDTH[8] = { 1, 2, 4, 0, 1, 2, 0, 0 };
 
 /*
-
-    La RAM del core è byte-indirizzata (come la vede il caricatore ELF, che fa
+    La RAM del RISC è byte-indirizzata (come la vede il caricatore ELF, che fa
     memcpy su (uint8_t*)memory + sh_addr): "memory" è uint32_t[] solo per
     comodità del fetch.
     L'indirizzo NON è quindi un indice di parola.
-    Senza questo controllo uno store oltre i 16 KB finiva nel core successivo
+    Senza questo controllo uno store oltre i 16 KB finiva nel RISC successivo
     dell'array flat di grid.c, corrompendolo.
-
 */
-static uint8_t *mem_ptr(RISC_V *core, uint32_t addr, int width) {
-    if (width == 0 || addr > (uint32_t)sizeof(core -> memory) - (uint32_t)width) {
-        printf("[core %d] accesso a 0x%08x (%d byte) fuori RAM -> stop\n",
-               core -> core_id, addr, width);
-        core -> running = false;
+static uint8_t *mem_ptr(RISC_V *risc, uint32_t addr, int width) {
+    if (width == 0 || addr > (uint32_t)sizeof(risc -> memory) - (uint32_t)width) {
+        printf("[RISC %d] accesso a 0x%08x (%d byte) fuori RAM -> stop\n",
+               risc -> risc_id, addr, width);
+        risc -> running = false;
         return NULL;
     }
-    return (uint8_t *)core -> memory + addr;
+    return (uint8_t *)risc -> memory + addr;
 }
 
-void execute(RISC_V *core, DecodedInstr d) {
+void execute(RISC_V *risc, DecodedInstr d) {
     uint32_t address;
     uint32_t val1, val2;
     int branch_taken;
@@ -194,8 +186,8 @@ void execute(RISC_V *core, DecodedInstr d) {
 
         case LOAD:
             {
-                address = core -> regs[d.rs1] + d.imm;
-                uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
+                address = risc -> regs[d.rs1] + d.imm;
+                uint8_t *p = mem_ptr(risc, address, LS_WIDTH[d.funct3]);
                 if (!p) {
                     break;
                 }
@@ -203,26 +195,26 @@ void execute(RISC_V *core, DecodedInstr d) {
                 int16_t h; int32_t w;
                 switch (d.funct3) {
                     case 0x0:
-                        core -> regs[d.rd] = (uint32_t)(int32_t)(int8_t)*p;
+                        risc -> regs[d.rd] = (uint32_t)(int32_t)(int8_t)*p;
                         printf("LB x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x1:
                         memcpy(&h, p, 2);
-                        core -> regs[d.rd] = (uint32_t)(int32_t)h;
+                        risc -> regs[d.rd] = (uint32_t)(int32_t)h;
                         printf("LH x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x2:
                         memcpy(&w, p, 4);
-                        core -> regs[d.rd] = (uint32_t)w;
+                        risc -> regs[d.rd] = (uint32_t)w;
                         printf("LW x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x4:
-                        core -> regs[d.rd] = *p;
+                        risc -> regs[d.rd] = *p;
                         printf("LBU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x5:
                         memcpy(&h, p, 2);
-                        core -> regs[d.rd] = (uint16_t)h;
+                        risc -> regs[d.rd] = (uint16_t)h;
                         printf("LHU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
                 }
             }
@@ -230,13 +222,13 @@ void execute(RISC_V *core, DecodedInstr d) {
 
         case STORE:
             {
-                address = core -> regs[d.rs1] + d.imm;
-                uint8_t *p = mem_ptr(core, address, LS_WIDTH[d.funct3]);
+                address = risc -> regs[d.rs1] + d.imm;
+                uint8_t *p = mem_ptr(risc, address, LS_WIDTH[d.funct3]);
                 if (!p) {
                     break;
                 }
 
-                uint32_t v = core -> regs[d.rs2];
+                uint32_t v = risc -> regs[d.rs2];
                 memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian: i byte bassi per primi */
                 printf("%s x%d, %d(x%d)\n",
                        d.funct3 == 0x0 ? "SB" : d.funct3 == 0x1 ? "SH" : "SW",
@@ -247,39 +239,39 @@ void execute(RISC_V *core, DecodedInstr d) {
         case OP_IMM:
             switch (d.funct3) {
                 case 0x0:
-                    core -> regs[d.rd] = core -> regs[d.rs1] + d.imm;
+                    risc -> regs[d.rd] = risc -> regs[d.rs1] + d.imm;
                     printf("ADDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x2:
-                    core -> regs[d.rd] = ((int32_t)core -> regs[d.rs1] < (int32_t)d.imm) ? 1 : 0;
+                    risc -> regs[d.rd] = ((int32_t)risc -> regs[d.rs1] < (int32_t)d.imm) ? 1 : 0;
                     printf("SLTI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x3:
-                    core -> regs[d.rd] = (core -> regs[d.rs1] < (uint32_t)d.imm) ? 1 : 0;
+                    risc -> regs[d.rd] = (risc -> regs[d.rs1] < (uint32_t)d.imm) ? 1 : 0;
                     printf("SLTIU x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x4:
-                    core -> regs[d.rd] = core -> regs[d.rs1] ^ d.imm;
+                    risc -> regs[d.rd] = risc -> regs[d.rs1] ^ d.imm;
                     printf("XORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x6:
-                    core -> regs[d.rd] = core -> regs[d.rs1] | d.imm;
+                    risc -> regs[d.rd] = risc -> regs[d.rs1] | d.imm;
                     printf("ORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x7:
-                    core -> regs[d.rd] = core -> regs[d.rs1] & d.imm;
+                    risc -> regs[d.rd] = risc -> regs[d.rs1] & d.imm;
                     printf("ANDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x1:
-                    core -> regs[d.rd] = core -> regs[d.rs1] << (d.imm & 0x1F);
+                    risc -> regs[d.rd] = risc -> regs[d.rs1] << (d.imm & 0x1F);
                     printf("SLLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F); break;
 
                 case 0x5:
                     if (d.funct7 == 0x20) {
-                        core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] >> (d.imm & 0x1F);
+                        risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] >> (d.imm & 0x1F);
                         printf("SRAI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
                     } else {
-                        core -> regs[d.rd] = (uint32_t)core -> regs[d.rs1] >> (d.imm & 0x1F);
+                        risc -> regs[d.rd] = (uint32_t)risc -> regs[d.rs1] >> (d.imm & 0x1F);
                         printf("SRLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
                     }
                     break;
@@ -290,105 +282,105 @@ void execute(RISC_V *core, DecodedInstr d) {
             switch (d.funct3) {
                 case 0x0:
                     if (d.funct7 == 0x20) {
-                        core -> regs[d.rd] = core -> regs[d.rs1] - core -> regs[d.rs2];
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] - risc -> regs[d.rs2];
                         printf("SUB x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else if (d.funct7 == 0x01) {
-                        core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] * (int32_t)core -> regs[d.rs2];
+                        risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] * (int32_t)risc -> regs[d.rs2];
                         printf("MUL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = core -> regs[d.rs1] + core -> regs[d.rs2];
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] + risc -> regs[d.rs2];
                         printf("ADD x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x1:
                     if (d.funct7 == 0x01) {
-                        int64_t full_res = (int64_t)(int32_t)core -> regs[d.rs1] * (int64_t)(int32_t)core -> regs[d.rs2];
-                        core -> regs[d.rd] = (uint32_t)(full_res >> 32);
+                        int64_t full_res = (int64_t)(int32_t)risc -> regs[d.rs1] * (int64_t)(int32_t)risc -> regs[d.rs2];
+                        risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
                         printf("MULH x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = core -> regs[d.rs1] << (core -> regs[d.rs2] & 0x1F);
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] << (risc -> regs[d.rs2] & 0x1F);
                         printf("SLL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x4:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) {
-                            core -> regs[d.rd] = 0xFFFFFFFF;
+                        if (risc -> regs[d.rs2] == 0) {
+                            risc -> regs[d.rd] = 0xFFFFFFFF;
                         } else {
-                            core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] / (int32_t)core -> regs[d.rs2];
+                            risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] / (int32_t)risc -> regs[d.rs2];
                         }
                         printf("DIV x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = core -> regs[d.rs1] ^ core -> regs[d.rs2];
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] ^ risc -> regs[d.rs2];
                         printf("XOR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x6:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) {
-                            core -> regs[d.rd] = core -> regs[d.rs1];
+                        if (risc -> regs[d.rs2] == 0) {
+                            risc -> regs[d.rd] = risc -> regs[d.rs1];
                         } else {
-                            core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] % (int32_t)core -> regs[d.rs2];
+                            risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] % (int32_t)risc -> regs[d.rs2];
                         }
                         printf("REM x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = core -> regs[d.rs1] | core -> regs[d.rs2];
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] | risc -> regs[d.rs2];
                         printf("OR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x2:
                     if (d.funct7 == 0x01) {
-                        int64_t full_res = (int64_t)(int32_t)core -> regs[d.rs1] * (int64_t)(uint64_t)core -> regs[d.rs2];
-                        core -> regs[d.rd] = (uint32_t)(full_res >> 32);
+                        int64_t full_res = (int64_t)(int32_t)risc -> regs[d.rs1] * (int64_t)(uint64_t)risc -> regs[d.rs2];
+                        risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
                         printf("MULHSU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = ((int32_t)core -> regs[d.rs1] < (int32_t)core -> regs[d.rs2]) ? 1 : 0;
+                        risc -> regs[d.rd] = ((int32_t)risc -> regs[d.rs1] < (int32_t)risc -> regs[d.rs2]) ? 1 : 0;
                         printf("SLT x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x3:
                     if (d.funct7 == 0x01) {
-                        uint64_t full_res = (uint64_t)core -> regs[d.rs1] * (uint64_t)core -> regs[d.rs2];
-                        core -> regs[d.rd] = (uint32_t)(full_res >> 32);
+                        uint64_t full_res = (uint64_t)risc -> regs[d.rs1] * (uint64_t)risc -> regs[d.rs2];
+                        risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
                         printf("MULHU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = (core -> regs[d.rs1] < core -> regs[d.rs2]) ? 1 : 0;
+                        risc -> regs[d.rd] = (risc -> regs[d.rs1] < risc -> regs[d.rs2]) ? 1 : 0;
                         printf("SLTU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x5:
                     if (d.funct7 == 0x20) {
-                        core -> regs[d.rd] = (int32_t)core -> regs[d.rs1] >> (core -> regs[d.rs2] & 0x1F);
+                        risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] >> (risc -> regs[d.rs2] & 0x1F);
                         printf("SRA x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) {
-                            core -> regs[d.rd] = 0xFFFFFFFF;
+                        if (risc -> regs[d.rs2] == 0) {
+                            risc -> regs[d.rd] = 0xFFFFFFFF;
                         } else {
-                            core -> regs[d.rd] = core -> regs[d.rs1] / core -> regs[d.rs2];
+                            risc -> regs[d.rd] = risc -> regs[d.rs1] / risc -> regs[d.rs2];
                         }
                         printf("DIVU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = (uint32_t)core -> regs[d.rs1] >> (core -> regs[d.rs2] & 0x1F);
+                        risc -> regs[d.rd] = (uint32_t)risc -> regs[d.rs1] >> (risc -> regs[d.rs2] & 0x1F);
                         printf("SRL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x7:
                     if (d.funct7 == 0x01) {
-                        if (core -> regs[d.rs2] == 0) {
-                            core -> regs[d.rd] = core -> regs[d.rs1];
+                        if (risc -> regs[d.rs2] == 0) {
+                            risc -> regs[d.rd] = risc -> regs[d.rs1];
                         } else {
-                            core -> regs[d.rd] = core -> regs[d.rs1] % core -> regs[d.rs2];
+                            risc -> regs[d.rd] = risc -> regs[d.rs1] % risc -> regs[d.rs2];
                         }
                         printf("REMU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
-                        core -> regs[d.rd] = core -> regs[d.rs1] & core -> regs[d.rs2];
+                        risc -> regs[d.rd] = risc -> regs[d.rs1] & risc -> regs[d.rs2];
                         printf("AND x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
@@ -397,17 +389,17 @@ void execute(RISC_V *core, DecodedInstr d) {
 
         case JALR:
             {
-                uint32_t return_addr = core -> pc;
-                core -> pc = (core -> regs[d.rs1] + d.imm) & ~1;
-                core -> regs[d.rd] = return_addr;
+                uint32_t return_addr = risc -> pc;
+                risc -> pc = (risc -> regs[d.rs1] + d.imm) & ~1;
+                risc -> regs[d.rd] = return_addr;
                 printf("JALR x%d, x%d, %d\n", d.rd, d.rs1, d.imm);
             }
             break;
 
         case BRANCH:
             branch_taken = 0;
-            val1 = core -> regs[d.rs1];
-            val2 = core -> regs[d.rs2];
+            val1 = risc -> regs[d.rs1];
+            val2 = risc -> regs[d.rs2];
             switch (d.funct3) {
                 case 0x0: if (val1 == val2) { branch_taken = 1; }
                     printf("BEQ ");
@@ -435,25 +427,25 @@ void execute(RISC_V *core, DecodedInstr d) {
 
             }
             if (branch_taken) {
-                core -> pc = (core -> pc - 4) + d.imm;
+                risc -> pc = (risc -> pc - 4) + d.imm;
             }
             printf("x%d, x%d, %d\n", d.rs1, d.rs2, d.imm);
             break;
 
         case LUI:
-            core -> regs[d.rd] = d.imm;
+            risc -> regs[d.rd] = d.imm;
             printf("LUI x%d, 0x%x\n", d.rd, d.imm);
             break;
 
         case AUIPC:
-            core -> regs[d.rd] = (core -> pc - 4) + d.imm;
+            risc -> regs[d.rd] = (risc -> pc - 4) + d.imm;
             printf("AUIPC x%d, 0x%x\n", d.rd, d.imm);
             break;
 
 
         case JAL:
-            core -> regs[d.rd] = core -> pc;
-            core -> pc = (core -> pc - 4) + d.imm;
+            risc -> regs[d.rd] = risc -> pc;
+            risc -> pc = (risc -> pc - 4) + d.imm;
             printf("JAL x%d, %d\n", d.rd, d.imm);
             break;
 
@@ -462,17 +454,14 @@ void execute(RISC_V *core, DecodedInstr d) {
                 int dir = d.rs2;
 
                 /*
-
-                    in_ch è NULL solo su un core fuori griglia (modalità single-core):
+                    in_ch è NULL solo su un risc fuori griglia (modalità single-risc):
                     un ingresso scollegato è un canale eternamente vuoto,
                     ISRDY dà 0 e IN dà 0. In griglia sono tutti cablati, bordo
                     compreso, quindi qui non cambia niente.
-
                 */
-                Channel *in = core -> in_ch[dir];
+                Channel *in = risc -> in_ch[dir];
 
                 /*
-
                     Modalità senza backpressure (NOBP=1): il canale degrada a un
                     registro senza handshake, cioè il systolic in lockstep puro
                     che il ready bit sostituisce.
@@ -483,69 +472,78 @@ void execute(RISC_V *core, DecodedInstr d) {
                     di un ciclo per hop e l'ordine di visibilità sono identici.
                     Serve a far perdere dati, non a funzionare: in pratica utilizzato
                     solo per avere un confronto con gli altri dati.
-
                 */
                 if (nobp()) {
                     if (d.funct3 == 0x0){
-                        core -> regs[d.rd] = in ? in -> data : 0;          /* IN */
+                        risc -> regs[d.rd] = in ? in -> data : 0;          /* IN */
                     }
-                    else if (d.funct3 == 0x1){
-                        core -> out_ch[dir].data_next = core -> regs[d.rs1]; /* OUT */
+                    else if (d.funct3 == 0x1){                             /* OUT */
+                        /*
+                            Qui SETRDY non commuta wp, quindi la cattura di
+                            ch_commit (che scatta sulla transizione) non
+                            scatterebbe mai e il dato non arriverebbe. La OUT
+                            forza la transizione da sé: è esattamente il canale
+                            senza handshake, dove pubblicare non richiede il
+                            permesso di nessuno.
+                        */
+                        Channel *o = &risc -> out_ch[dir];
+                        o -> data_next = risc -> regs[d.rs1];
+                        o -> wp_next   = o -> wp ^ 1;
                     }
                     else {
-                        core -> regs[d.rd] = 1;   /* ISRDY e SETRDY: sempre */
+                        risc -> regs[d.rd] = 1;   /* ISRDY e SETRDY: sempre */
                     }
                     break;
                 }
 
                 if (d.funct3 == 0x0) { /* IN */
-                    core  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
-                    printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, core -> regs[d.rd]);
+                    risc  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
+                    printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, risc -> regs[d.rd]);
                 }
                 else if (d.funct3 == 0x1) { /* OUT */
-                    ch_write(&core->out_ch[dir], core->regs[d.rs1]);
-                    printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, core -> regs[d.rs1]);
+                    ch_write(&risc->out_ch[dir], risc->regs[d.rs1]);
+                    printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, risc -> regs[d.rs1]);
                 }
                 else if(d.funct3 == 0x2) { /* ISRDY */
-                    core  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
-                    if (!core -> regs[d.rd]) {
-                        core -> attese++;
+                    risc  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
+                    if (!risc -> regs[d.rd]) {
+                        risc -> attese++;
                     }
-                    printf("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, core->regs[d.rd]);
+                    printf("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
                 }
                 else if(d.funct3 == 0x3) { /* SETRDY */
-                    core  ->  regs[d.rd] = ch_setrdy(&core  ->  out_ch[dir]);
-                    if (!core -> regs[d.rd]) {
-                        core -> ritentativi++;
+                    risc  ->  regs[d.rd] = ch_setrdy(&risc  ->  out_ch[dir]);
+                    if (!risc -> regs[d.rd]) {
+                        risc -> ritentativi++;
                     }
-                    printf("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, core->regs[d.rd]);
+                    printf("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
                 }
                 break;
             }
 
         case ECALL:
-            core -> running = false;
-            printf("ECALL -> core %d fermato\n", core->core_id);
+            risc -> running = false;
+            printf("ECALL -> RISC %d fermato\n", risc->risc_id);
             break;
 
         default:
-            core -> running = false;
-            printf("[core %d] pc=0x%08x instr=0x%08x opcode 0x%02x non implementato -> stop\n",
-                   core -> core_id, core -> pc - 4, core -> current_inst, d.opcode);
+            risc -> running = false;
+            printf("[RISC %d] pc=0x%08x instr=0x%08x opcode 0x%02x non implementato -> stop\n",
+                   risc -> risc_id, risc -> pc - 4, risc -> current_inst, d.opcode);
             break;
     }
 
-    core -> regs[0] = 0;
+    risc -> regs[0] = 0;
 }
 
-void execute_step(RISC_V *core) {
-    if (!core -> running) {
+void execute_step(RISC_V *risc) {
+    if (!risc -> running) {
         return;
     }
 
-    core -> current_inst = fetch(core);
+    risc -> current_inst = fetch(risc);
 
-    DecodedInstr d = decode(core -> current_inst);
+    DecodedInstr d = decode(risc -> current_inst);
 
-    execute(core, d);
+    execute(risc, d);
 }

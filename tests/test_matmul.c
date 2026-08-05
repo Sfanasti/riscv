@@ -22,12 +22,12 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "core.h"
+#include "risc.h"
 #include "grid.h"
 #include "elf.h"
 
 #define MAX_CICLI 100000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1  9              /* accumulatore C[i][j] (si veda REG_NAMES in core.c) */
+#define S1  9              /* accumulatore C[i][j] (si veda REG_NAMES in risc.c) */
 #define S2 18              /* termini rimasti: a fine corsa deve essere 0 */
 
 /*
@@ -50,14 +50,14 @@ int main(int argc, char **argv) {
 
     long size;
     uint8_t *elf = load_elf(argv[1], &size);
-    check_elf(elf);
+    check_elf(elf, size);
     Elf32_Ehdr *h = (Elf32_Ehdr *)elf;
 
     Grid g;
     grid_init(&g, rows, cols, h -> e_entry);
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
-            carica_elf_in_core(grid_at(&g, r, c), elf, h);
+            carica_elf_in_risc(grid_at(&g, r, c), elf, h, size);
         }
     }
 
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
         cicli++;
         vivi = 0;
         for (int i = 0; i < rows * cols; i++) {
-            vivi |= g.cores[i].running;
+            vivi |= g.risc[i].running;
         }
     } while (vivi && cicli < MAX_CICLI);
 

@@ -1,3 +1,10 @@
+/*
+    Casi limite del canale a transizione di livello (src/channel.h).
+    Tutto lo stato di protocollo sono due contatori mod 2 e i comparatori che
+    li confrontano: qui si verifica che basti, cioè che nessuno dei casi
+    scomodi richieda un bit in più.
+*/
+
 #include <assert.h>
 #include <stdio.h>
 #include "channel.h"
@@ -15,6 +22,7 @@ int main(void) {
 
     ch_commit(&c);
     assert(ch_isrdy(&c) && !ch_iswrt(&c)); /* ora sì, dopo il commit */
+    assert(c.data == 42);                  /* il visibile ha catturato alla transizione di wp */
 
     /* un secondo SETRDY prima che qualcuno legga deve fallire (niente overwrite) */
     assert(ch_setrdy(&c) == 0);
@@ -34,34 +42,52 @@ int main(void) {
     assert(ch_iswrt(&c));
 
     /*
-        SETRDY senza una OUT accettata non deve pubblicare niente:
-        altrimenti ripubblica il dato vecchio come se fosse nuovo
+        SETRDY pubblica il contenuto CORRENTE del registro di uscita, qualunque
+        esso sia: caricarlo è compito della OUT. Senza una OUT davanti
+        ripubblica il valore vecchio, e il canale non ha modo di accorgersene.
+        È un bug del programma, non del protocollo: accorgersene richiederebbe
+        ricordare che una OUT è passata di qui, cioè uno stato in più.
     */
-    assert(ch_setrdy(&c) == 0);
+    assert(ch_setrdy(&c) == 1);
+    ch_commit(&c);
+    assert(ch_isrdy(&c));
+    assert(ch_read_c(&c) == 42);           /* il 42 di prima, ripubblicato tale e quale */
+    ch_commit(&c);
+    assert(ch_iswrt(&c));
 
     /*
-        backpressure: OUT su canale pieno viene rifiutata, e la SETRDY che
-        segue deve fallire anche se nel frattempo il consumatore ha svuotato
+        Il caso per cui tutto questo è stato progettato così.
+        Canale pieno, il produttore carica comunque, e il consumatore legge nello
+        STESSO ciclo: al ciclo dopo il canale è vuoto e la SETRDY riesce. Deve
+        consegnare il valore NUOVO, non un duplicato di quello appena letto.
+        È qui che un canale ingenuo sbaglia in silenzio.
     */
     ch_write(&c, 7);
     assert(ch_setrdy(&c) == 1);
     ch_commit(&c);                         /* 7 pubblicato, canale pieno */
-    ch_write(&c, 8);                       /* rifiutata: slot occupato */
-    assert(ch_read_c(&c) == 7);            /* il consumatore legge 7 nello stesso ciclo */
-    ch_commit(&c);                         /* ora è vuoto... */
-    assert(ch_setrdy(&c) == 0);            /* ...ma l'8 non era mai entrato */
+
+    ch_write(&c, 8);                       /* atterra nel registro di uscita, non nel visibile */
+    assert(ch_read_c(&c) == 7);            /* il consumatore legge ancora 7: l'8 non lo tocca */
+    ch_commit(&c);                         /* consumo committato: vuoto, e il dato è ancora 7 */
+    assert(ch_iswrt(&c));
+    assert(c.data == 7);                   /* nessuna cattura senza transizione di wp */
+
+    assert(ch_setrdy(&c) == 1);            /* ora si può pubblicare */
     ch_commit(&c);
-    assert(!ch_isrdy(&c));                 /* niente 7 duplicato */
+    assert(ch_isrdy(&c));
+    assert(ch_read_c(&c) == 8);            /* ed è l'8, NON un 7 duplicato */
+    ch_commit(&c);
+    assert(ch_iswrt(&c));
 
     /*
         Una sola pubblicazione per ciclo. Il caso lo produce solo l'host (un
-        core esegue una istruzione per ciclo, non può fare due OUT+SETRDY):
-        la seconda coppia va rifiutata, non deve sostituire il valore già
-        pubblicato né riportare indietro wp_next.
+        risc esegue una istruzione per ciclo, non può fare due OUT+SETRDY):
+        la seconda coppia va rifiutata, e la seconda OUT non deve sostituire il
+        valore di cui la prima ha già promesso la consegna.
     */
     ch_write(&c, 1);
     assert(ch_setrdy(&c) == 1);
-    ch_write(&c, 2);                       /* rifiutata: slot già impegnato */
+    ch_write(&c, 2);                       /* congelata: la pubblicazione è già decisa */
     assert(ch_setrdy(&c) == 0);
     ch_commit(&c);
     assert(ch_isrdy(&c));                  /* pubblicato una volta, non zero */

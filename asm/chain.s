@@ -4,11 +4,11 @@
 # "Generalizzazione" di prodcons.s
 # Catena su griglia 1xC: source -> forwarding ... forwarding -> sink.
 # Il ruolo viene dalla POSIZIONE, non da un id:
-#   colonna 0 --> source: manda 1..QUANTI a EST
+#   colonna 0 --> source: manda 1..Q a EST
 #   colonna cols-1 --> sink:legge da OVEST e accumula in s1
 #   in mezzo --> forwarding: legge da OVEST e ripubblica a EST
 #
-# Atteso: s1 del sink == QUANTI*(QUANTI+1)/2 per QUALSIASI numero di colonne
+# Atteso: s1 del sink == Q*(Q+1)/2 per QUALSIASI numero di colonne
 # e QUALSIASI valore di RITARDO. La catena cambia la latenza ma non deve
 # cambiare il risultato.
 #
@@ -24,13 +24,13 @@
 # alto e s4 basso è quella che aspetta il vicino a valle.
 #
 # PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   QUANTI    quanti valori attraversano la catena --> default 5
+#   Q         quanti valori attraversano la catena --> default 5
 #   RITARDO   cicli sprecati dal sink prima di ogni lettura --> default 0
 #
 # USO:
 #   make run  P=chain R=1 C=6 N=4000 DEFS="--defsym RITARDO=10"
 #   make step P=chain R=1 C=4 N=60
-#   make test-chain [QUANTI=10]     sweep 6 RITARDI x 4 lunghezze, assert sulla somma
+#   make test-chain [Q=10]     sweep 6 RITARDI x 4 lunghezze, assert sulla somma
 #
 # Come in prodcons.s, RITARDO non si passa da qui: lo fa variare il Makefile
 # (RITARDI = 0 1 4 8 25 60), e COLONNE = 2 3 5 12 gli si moltiplica sopra, perché
@@ -42,8 +42,8 @@
 .ifndef RITARDO
 .equ RITARDO, 0
 .endif
-.ifndef QUANTI
-.equ QUANTI, 5
+.ifndef Q
+.equ Q, 5
 .endif
 
 .text
@@ -55,10 +55,10 @@ _start:
     beq    s0, s5, sink
     j      forwarding
 
-# ---- colonna 0: genera 1..QUANTI verso EST ----
+# ---- colonna 0: genera 1..Q verso EST ----
 source:
     li     s1, 1           # valore corrente
-    li     s2, QUANTI      # quanti ne restano
+    li     s2, Q      # quanti ne restano
     li     s3, 0           # SETRDY rifiutate
 1:  OUT    s1, EST
     SETRDY t0, EST
@@ -70,11 +70,11 @@ source:
     bnez   s2, 1b
     ecall
 
-# ---- colonne intermedie: OVEST -> EST, QUANTI volte ----
-# Sa quando fermarsi perché QUANTI è una costante di build nota a tutti:
+# ---- colonne intermedie: OVEST -> EST, Q volte ----
+# Sa quando fermarsi perché Q è una costante di build nota a tutti:
 # non serve un valore sentinella nel flusso dati.
 forwarding:
-    li     s2, QUANTI
+    li     s2, Q
     li     s3, 0
     li     s4, 0
 1:  ISRDY  t0, OVEST
@@ -94,7 +94,7 @@ forwarding:
 # ---- ultima colonna: accumula in s1 ----
 sink:
     li     s1, 0           # somma
-    li     s2, QUANTI
+    li     s2, Q
     li     s4, 0
 1:
 .if RITARDO > 0

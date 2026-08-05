@@ -1,5 +1,5 @@
 #include "elf.h"
-#include "core.h"
+#include "risc.h"
 #include "grid.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +8,7 @@
 
 static int grid_any_running(Grid *g) {
     for (int i = 0; i < g->rows * g->cols; i++) {
-        if (g->cores[i].running) {
+        if (g->risc[i].running) {
             return 1;
         }
     }
@@ -22,15 +22,15 @@ static void wait_enter(void) {
     while ((c = getchar()) != '\n' && c != EOF);
 }
 
-void run_single_core(RISC_V *core) {
-    printf("\n[SINGLE CORE] Premi INVIO per ogni passo. Ctrl+C per uscire.\n");
+void run_single_risc(RISC_V *risc) {
+    printf("\n[SINGLE RISC] Premi INVIO per ogni passo. Ctrl+C per uscire.\n");
 
-    while (core -> running) {
+    while (risc -> running) {
         wait_enter();
-        execute_step(core);
-        print_state(core);
+        execute_step(risc);
+        print_state(risc);
     }
-    printf("\n[SINGLE CORE] Esecuzione terminata.\n");
+    printf("\n[SINGLE RISC] Esecuzione terminata.\n");
 }
 
 static void grid_print(Grid *grid) {
@@ -54,26 +54,22 @@ void run_grid(Grid *grid, int cicli) {
         }
 
         /*
-
             L'host prima del passo: alimenta il perimetro. Il contorno costante
             è il caso dello stencil (Dirichlet); un contorno che varia per
-            cella o nel tempo si scrive con grid_push, come sivede in tests/test_bordo.c.
+            cella o nel tempo si scrive con grid_push, come si vede in tests/test_bordo.c.
             Senza BORDO i canali di bordo restano vuoti per sempre, cioè un
             bordo aperto da cui non arriva mai niente.
-
         */
         if (bordo) {
             grid_border_fill(grid, (uint32_t)strtoul(bordo, NULL, 0));
         }
 
         /*
-
             Il drenaggio non è opzionale come l'alimentazione: un OUT di
             perimetro che nessuno consuma inchioda la cella sulla propria
             SETRDY. Si stampa solo il totale: un kernel come lo stencil, che
             spinge fuori da tutti e quattro i lati a ogni iterazione, sommergerebbe
             la traccia. Per un valore preciso c'è grid_pop da C.
-
         */
         usciti += grid_border_drain(grid);
 
@@ -82,14 +78,14 @@ void run_grid(Grid *grid, int cicli) {
     }
 
     printf("\n[GRID] fermata dopo %d cicli (%s), %d valori usciti dal perimetro\n",
-           step, grid_any_running(grid) ? "limite cicli raggiunto" : "tutti i core fermi",
+           step, grid_any_running(grid) ? "limite cicli raggiunto" : "tutti i RISC fermi",
            usciti);
     grid_print(grid);
 }
 
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 5) {
-        printf("Debug singolo core: %s <file.elf>\n", argv[0]);
+        printf("Debug singolo RISC: %s <file.elf>\n", argv[0]);
         printf("Griglia:            %s <file.elf> <rows> <cols> <cicli>\n", argv[0]);
         return 1;
     }
@@ -99,15 +95,15 @@ int main(int argc, char **argv) {
     if (!elf_content) {
         return 1;
     }
-    check_elf(elf_content);
+    check_elf(elf_content, fileSize);
     Elf32_Ehdr *header = (Elf32_Ehdr *)elf_content;
     printf("Entry point: 0x%08x\n", header -> e_entry);
 
     if (argc == 2) {
-        RISC_V core;
-        init_core(&core, header -> e_entry, 0);
-        carica_elf_in_core(&core, elf_content, header);
-        run_single_core(&core);
+        RISC_V risc;
+        init_risc(&risc, header -> e_entry, 0);
+        carica_elf_in_risc(&risc, elf_content, header, fileSize);
+        run_single_risc(&risc);
 
     } else {
         int rows  = atoi(argv[2]);
@@ -118,7 +114,7 @@ int main(int argc, char **argv) {
         grid_init(&grid, rows, cols, header -> e_entry);
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
-                carica_elf_in_core(grid_at(&grid, r, c), elf_content, header);
+                carica_elf_in_risc(grid_at(&grid, r, c), elf_content, header, fileSize);
             }
         }
 
