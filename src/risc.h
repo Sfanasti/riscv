@@ -5,7 +5,15 @@
 #include <stdbool.h>
 #include "channel.h"
 
+/*
+    Memoria privata di una cella, in parole. Senza la guardia un -DMEM_SIZE da
+    riga di comando verrebbe silenziosamente sovrascritto da questa riga: il
+    default resta 4096 (16 KB), ma un esperimento può abbassarlo per misurare
+    quanto pesa il passo fra celle contigue.
+*/
+#ifndef MEM_SIZE
 #define MEM_SIZE 4096
+#endif
 
 typedef struct {
     int risc_id;

@@ -1,0 +1,163 @@
+% !TEX root = Tesi_Corsi_Leonardo_656276.tex
+\chapter{Conclusioni e sviluppi futuri}
+\label{ch:conclusioni}
+
+\section{Sintesi del lavoro svolto}
+\label{sec:sintesi-finale}
+
+Il lavoro consegna due risultati, uno sull'array simulato e uno sul simulatore
+che lo esegue. Il primo riguarda il canale ed è il principio enunciato nel
+capitolo~\ref{ch:introduzione}; il secondo riguarda il ciclo di clock
+parallelizzato e ne individua il regime di convenienza.
+
+\subsection{Il \emph{ready bit} al posto della schedulazione}
+
+Il principio enunciato nel capitolo~\ref{ch:introduzione} è verificato nella
+forma seguente. Sullo stesso programma e con gli stessi parametri, il risultato
+ottenuto con l'\emph{handshake} è corretto per ogni velocità relativa dei nodi e
+per ogni lunghezza della catena; senza, è corretto soltanto quando il consumatore
+è abbastanza veloce, e negli altri casi l'array produce un risultato
+numericamente definito ma errato, che nessun componente rileva. Ciascun lato del
+canale commuta soltanto il proprio registro da un bit ed è il confronto fra i
+due, e non il valore dell'uno o dell'altro, a stabilire se il canale sia pieno o
+vuoto: nessuno dei due lati conosce il comportamento temporale dell'altro, e la
+correttezza cessa di dipendere dalla schedulazione con cui l'ospite alimenta
+l'array.
+
+Il costo si misura su due assi. In cicli è nullo: da ritardo uno in poi le due
+modalità impiegano esattamente lo stesso numero di cicli, perché il tempo lo
+consuma il consumatore lento e non il protocollo, e solo con ritardo zero il
+\emph{lockstep} risparmia otto cicli su quarantacinque, che è anche l'unica
+configurazione in cui non perde dati. In area lo quantifica la sintesi del
+modello RTL (sezione~\ref{sec:rtl}): \textbf{66 flip-flop e 6 porte
+combinatorie per canale}, di cui 64 flip-flop sono i due registri dati da 32 bit
+e due sono i contatori, mentre le sei porte sono lo XOR e lo XNOR dei due
+comparatori più quattro abilitazioni. Lo stato di sincronizzazione in senso
+stretto è quindi di due flip-flop per canale, mentre il secondo registro dati è
+una conseguenza dell'asimmetria fra \texttt{OUT} e \texttt{SETRDY}, poiché il
+valore appena caricato e quello pubblicato e non ancora letto possono differire
+nello stesso istante. Fra due celle adiacenti corrono 68 fili.
+
+\subsection{L'efficienza della parallelizzazione dipende dalla sola dimensione
+            della griglia}
+
+Il secondo risultato riguarda il simulatore. Il ciclo di clock si parallelizza
+senza una sola sezione critica, e il guadagno che se ne ottiene è determinato
+dal solo prodotto $R \cdot C$: il lavoro di un ciclo sono $R \cdot C$ istruzioni
+simulate, il costo da pagare per distribuirlo sono le due regioni parallele che
+il ciclo apre, e il pareggio cade dove le due grandezze si eguagliano.
+
+Il pareggio è misurato a $40\times40$. La collocazione è stretta e non
+estrapolata, perché $32\times32$ e $40\times40$ sono due forme contigue dello
+sweep e il pareggio cade fra loro per tutti e tre i valori dell'intensità di
+calcolo. La previsione analitica lo collocava a $24\times24$ ed era ottimistica
+di poco meno di un fattore due, per un effetto di \emph{false sharing} che il
+modello non conteneva: i quattro canali di uscita di una cella occupano
+esattamente una linea di cache, e su quella linea scrivono a ogni ciclo fino a
+cinque thread.
+
+Che l'intensità di calcolo non compaia in quel rapporto discende dal disegno del
+ciclo di clock, che è per costruzione \emph{una istruzione per cella}: un
+programma a maggiore intensità di calcolo non rende più pesante il ciclo, ne
+esegue soltanto di più, e il numero di cicli si semplifica nel rapporto fra
+tempo seriale e tempo parallelo. Il programma \texttt{pesante}
+(sezione~\ref{sec:kernel-pesante}) verifica questa proprietà dove sarebbe più
+visibile smentirla: trentadue volte le istruzioni di calcolo per ogni
+comunicazione non spostano il pareggio di una forma, e il controllo a parità di
+cicli non lascia alcun effetto residuo. La misura del pareggio si estende quindi
+all'intera classe dei programmi: al di sopra di $40\times40$ l'aggiunta di
+thread accelera il ciclo di clock qualunque cosa le celle stiano eseguendo, e
+non occorre rimisurare il pareggio per ogni nuovo programma. La conseguenza
+operativa è che per spostarlo non serve un programma diverso, serve una griglia
+più grande oppure una regione parallela che non si riapra a ogni ciclo.
+
+Le forme della suite di verifica si fermano a $12\times12$ e cadono quindi tutte
+al di sotto del pareggio, dove la perdita arriva a poco più di un decimo della
+velocità seriale. Sono le dimensioni che il compito di quello sweep richiede,
+poiché verifica la correttezza e non le prestazioni: una asserzione soddisfatta
+su $12\times12$ non dipende dalla dimensione della griglia, mentre un tempo di
+esecuzione sì.
+
+Il tetto asintotico non è quello di Amdahl ma la località. La frazione
+seriale scende dal $10{,}1\,\%$ su $8\times8$ allo $0{,}64\,\%$ su
+$256\times256$, cioè si allontana esattamente nella direzione in cui l'array
+diventa conveniente; nella stessa direzione il costo di simulare una istruzione
+più che quintuplica, da 15,9 a 83,4\,ns, a un solo thread e a parità di lavoro
+da svolgere, perché il passo di 16\,KB fra celle contigue disperde lo stato caldo
+di ciascuna su una pagina diversa.
+
+Il limite di queste misure è quello posto nella sezione~\ref{sec:pareggio}: la
+macchina non è dedicata e il valore assoluto dello \emph{speedup} non è
+riproducibile fra sessioni diverse. Si ritrovano invece in ogni sessione la
+collocazione del pareggio, la severità della perdita al di sotto di esso,
+l'andamento della frazione seriale e l'indipendenza dall'intensità di calcolo,
+che sono le quattro affermazioni su cui il risultato poggia.
+
+\section{Considerazioni sull'esperienza di sviluppo}
+\label{sec:esperienza}
+
+Il risultato più istruttivo dello sviluppo non è stato l'aggiunta di un
+meccanismo ma la sua rimozione. La prima versione del canale aveva un bit di
+stato in più, \texttt{pending}, che ricordava se una \texttt{OUT} fosse passata
+e faceva fallire la \texttt{SETRDY} in sua assenza: serviva a coprire il caso in
+cui le due istruzioni si trovano ai due lati di una lettura del consumatore
+(sezione~\ref{sec:protocollo}). Funzionava. Spostando il vincolo dalla \texttt{OUT} alla cattura
+del dato sul fronte, quel bit è diventato superfluo, e rigenerando tutte le
+misure si è scoperto che era anche una pessimizzazione: cinque file di dati su
+sei sono rimasti identici byte per byte e il sesto è migliorato. Lo stesso
+schema si è ripetuto passando al modello RTL, dove il doppio buffer che in C
+costa tre campi in più è semplicemente la semantica dell'assegnamento non
+bloccante, e sparisce.
+
+La seconda lezione riguarda le misure. Alcuni numeri hanno significato solo se
+si dice con precisione che cosa contano: i contatori di attesa e di ritentativo
+misurano istruzioni fallite e non cicli persi, e riportarli senza quella
+precisazione porta a conclusioni sbagliate sulla lentezza di un programma. Per
+lo stesso motivo il confronto fra una griglia $1\times1$ e una $12 \times 12$ va
+riformulato sul rapporto fra perimetro e area, altrimenti attribuisce all'array
+un merito che è dell'ospite. Il paragone con il caso senza \emph{ready bit}
+esiste per la stessa ragione: senza un termine di paragone la tesi sarebbe
+affermata e non misurata.
+
+La terza riguarda il parallelismo, e va contro l'intuizione di partenza. Il
+simulatore è parallelizzabile senza un solo \emph{lock}, ma su tutte le griglie
+di questo lavoro il parallelismo \textbf{costa} invece di rendere, e la leva più
+efficace si è rivelata seriale: togliere le stampe di traccia e attivare
+l'ottimizzazione ha dato un fattore 3,5 prima ancora di aprire una regione
+parallela.
+
+\section{Sviluppi futuri}
+\label{sec:sviluppi}
+
+\subsection{Le due modifiche indicate dalla misura}
+
+Le prime due estensioni non sono scelte di progetto ma indicazioni che i dati
+del capitolo~\ref{ch:risultati} lasciano aperte. Spostare il contatore di
+lettura nella cella consumatrice eliminerebbe il \emph{false sharing} e
+allineerebbe al tempo stesso il codice C alla struttura fisica del circuito,
+dove quel flip-flop starebbe nel consumatore: due criteri indipendenti, uno di
+prestazioni e uno di fedeltà, indicano la stessa modifica, e non costa area,
+perché il contatore passa da un modulo all'altro senza cambiare di numero.
+Spostare la regione parallela fuori dal ciclo dei passi pagherebbe due barriere
+invece di due per ciclo, ed è il modo di abbassare il pareggio senza ingrandire
+la griglia.
+
+\subsection{Canali di profondità maggiore di uno}
+
+Portare la profondità da uno a $N$ è una estensione ortogonale: i due contatori
+diventerebbero modulo $N$ invece che modulo due e il resto del protocollo non
+cambierebbe di una riga. La misura da fare è quanta parte della differenza fra
+le due modalità sopravvive quando il buffer nasconde il disallineamento.
+
+\subsection{Clock indipendenti}
+
+Il modello è sincrono, con un clock globale. Un modello asincrono vero
+richiederebbe di cambiare il solo ciclo di simulazione e non il protocollo,
+perché il \emph{ready bit} compensa il disallineamento del carico di lavoro e
+non quello del clock.
+
+\subsection{Il resto della cella in RTL}
+
+Oggi il modello hardware copre il canale e l'interfaccia di comunicazione.
+Estenderlo al processore completerebbe il confronto e permetterebbe di misurare
+l'area dell'intera cella e non della sola interfaccia.

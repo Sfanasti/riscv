@@ -13,13 +13,15 @@
 
                             per canale   per cella (x4)   griglia 12x12
         flip-flop           32+32+1+1=66      264             38.016
+        combinatoria               6           24              3.456
         fili verso il vicino      33          132
         fili dal vicino            1            4
-        combinatoria         1 XOR + 1 AND
 
-    I 33 fili in uscita sono i 32 del dato piu' isrdy; l'unico filo di ritorno
-    e' lo strobe di consumo. Fra due celle adiacenti corrono quindi 68 fili in
-    tutto, 34 per verso.
+    Le 6 celle combinatorie le conta 'make stat', non una stima a mano: sono
+    1 XOR e 1 XNOR (i due comparatori, isrdy e iswrt) piu' 2 ANDNOT e 2 NOT
+    (le abilitazioni dei quattro registri). I 33 fili in uscita sono i 32 del
+    dato piu' isrdy; l'unico filo di ritorno e' lo strobe di consumo. Fra due
+    celle adiacenti corrono quindi 68 fili in tutto, 34 per verso.
 
     ---- Una scelta di modellazione, non una svista ----
 

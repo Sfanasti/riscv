@@ -1,0 +1,8 @@
+kernel,righe,colonne,cicli,ritentativi,attese,totale
+reduce,1,1,9,0,0,0
+reduce,1,6,49,0,50,15
+reduce,6,1,39,0,35,15
+reduce,3,4,45,0,59,30
+reduce,4,4,51,0,84,48
+reduce,8,8,107,0,854,448
+reduce,12,12,163,0,3080,1584

@@ -15,17 +15,42 @@ static const char *REG_NAMES[32] = {
 static const char *DIR_NAMES[4] = { "NORD", "EST", "SUD", "OVEST" };
 
 /*
-    NOBP=1 -> modalità senza backpressure, si veda il case PCIO. Letta una volta
-    sola e non più riletta: stessa convenzione di STEP e BORDO in main.c, ma qui
-    la variabile serve anche ai test, che non passano da main.
+    Variabili d'ambiente lette una volta sola, in init_risc: stessa convenzione
+    di STEP e BORDO in main.c, ma qui servono anche ai test, che non passano da
+    main.
+
+        NOBP=1   modalità senza backpressure, si veda il case PCIO
+        TRACE=1  traccia per istruzione, SPENTA di default
+
+    Non sono più inizializzate pigramente dentro un accessore: con grid_step
+    parallelo due thread potrebbero scriverle nello stesso istante. La corsa
+    sarebbe benigna (scriverebbero lo stesso valore) ma ThreadSanitizer la
+    segnala, e in un progetto che parla di determinismo una corsa benigna resta
+    un cattivo esempio. init_risc gira sempre da codice seriale, prima di
+    qualunque regione parallela.
 */
-static int nobp(void) {
-    static int v = -1;
-    if (v < 0) {
-        v = getenv("NOBP") != NULL;
-    }
-    return v;
+static int nobp_on;
+static int trace_on;
+
+static void leggi_ambiente(void) {
+    nobp_on  = getenv("NOBP")  != NULL;
+    trace_on = getenv("TRACE") != NULL;
 }
+
+/*
+    La traccia costava il 58% del tempo di simulazione: un printf per istruzione
+    eseguita, e printf prende il lock di stdout anche scrivendo su /dev/null.
+    Con grid_step parallelo quel lock serializzerebbe tutti i thread, quindi
+    misurare il parallelismo con la traccia accesa significa misurare la
+    contesa sul lock. Spenta di default, TRACE=1 la riaccende per il debug.
+
+    print_state() NON passa di qui: è la stampa di stato che serve a make step,
+    e va emessa quando la si chiede. Restano fuori anche i tre messaggi di
+    errore (PC fuori memoria, accesso fuori RAM, opcode non implementato):
+    scattano una volta sola e fermano il RISC, quindi non pesano e nasconderli
+    renderebbe muto un arresto.
+*/
+#define TRACCIA(...) do { if (trace_on) { printf(__VA_ARGS__); } } while (0)
 
 void print_state(RISC_V *risc) {
     printf("\n--- STATO RISC [%d] | PC: 0x%08x | INSTR: 0x%08x ---\n",
@@ -56,11 +81,13 @@ void print_state(RISC_V *risc) {
 }
 
 void init_risc(RISC_V *risc, uint32_t start_pc, int id) {
+    leggi_ambiente();   /* idempotente, e sempre da codice seriale */
+
     for (int i = 0; i < 32; i++){
         risc -> regs[i] = 0;
     }
 
-    for (int i = 0; i < 4096; i++){
+    for (int i = 0; i < MEM_SIZE; i++){
         risc -> memory[i] = 0;
     }
 
@@ -82,7 +109,7 @@ void init_risc(RISC_V *risc, uint32_t start_pc, int id) {
 }
 
 uint32_t fetch(RISC_V *risc) {
-    if (risc -> pc / 4 >= 4096) {
+    if (risc -> pc / 4 >= MEM_SIZE) {
         printf("Errore: PC fuori dai limiti della memoria!\n");
         risc -> running = 0;
         return 0;
@@ -196,26 +223,26 @@ void execute(RISC_V *risc, DecodedInstr d) {
                 switch (d.funct3) {
                     case 0x0:
                         risc -> regs[d.rd] = (uint32_t)(int32_t)(int8_t)*p;
-                        printf("LB x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                        TRACCIA("LB x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x1:
                         memcpy(&h, p, 2);
                         risc -> regs[d.rd] = (uint32_t)(int32_t)h;
-                        printf("LH x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                        TRACCIA("LH x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x2:
                         memcpy(&w, p, 4);
                         risc -> regs[d.rd] = (uint32_t)w;
-                        printf("LW x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                        TRACCIA("LW x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x4:
                         risc -> regs[d.rd] = *p;
-                        printf("LBU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                        TRACCIA("LBU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
 
                     case 0x5:
                         memcpy(&h, p, 2);
                         risc -> regs[d.rd] = (uint16_t)h;
-                        printf("LHU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
+                        TRACCIA("LHU x%d, %d(x%d)\n", d.rd, d.imm, d.rs1); break;
                 }
             }
             break;
@@ -230,7 +257,7 @@ void execute(RISC_V *risc, DecodedInstr d) {
 
                 uint32_t v = risc -> regs[d.rs2];
                 memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian: i byte bassi per primi */
-                printf("%s x%d, %d(x%d)\n",
+                TRACCIA("%s x%d, %d(x%d)\n",
                        d.funct3 == 0x0 ? "SB" : d.funct3 == 0x1 ? "SH" : "SW",
                        d.rs2, d.imm, d.rs1);
             }
@@ -240,39 +267,39 @@ void execute(RISC_V *risc, DecodedInstr d) {
             switch (d.funct3) {
                 case 0x0:
                     risc -> regs[d.rd] = risc -> regs[d.rs1] + d.imm;
-                    printf("ADDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("ADDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x2:
                     risc -> regs[d.rd] = ((int32_t)risc -> regs[d.rs1] < (int32_t)d.imm) ? 1 : 0;
-                    printf("SLTI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("SLTI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x3:
                     risc -> regs[d.rd] = (risc -> regs[d.rs1] < (uint32_t)d.imm) ? 1 : 0;
-                    printf("SLTIU x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("SLTIU x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x4:
                     risc -> regs[d.rd] = risc -> regs[d.rs1] ^ d.imm;
-                    printf("XORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("XORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x6:
                     risc -> regs[d.rd] = risc -> regs[d.rs1] | d.imm;
-                    printf("ORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("ORI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x7:
                     risc -> regs[d.rd] = risc -> regs[d.rs1] & d.imm;
-                    printf("ANDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
+                    TRACCIA("ANDI x%d, x%d, %d\n", d.rd, d.rs1, d.imm); break;
 
                 case 0x1:
                     risc -> regs[d.rd] = risc -> regs[d.rs1] << (d.imm & 0x1F);
-                    printf("SLLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F); break;
+                    TRACCIA("SLLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F); break;
 
                 case 0x5:
                     if (d.funct7 == 0x20) {
                         risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] >> (d.imm & 0x1F);
-                        printf("SRAI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
+                        TRACCIA("SRAI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
                     } else {
                         risc -> regs[d.rd] = (uint32_t)risc -> regs[d.rs1] >> (d.imm & 0x1F);
-                        printf("SRLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
+                        TRACCIA("SRLI x%d, x%d, %d\n", d.rd, d.rs1, d.imm & 0x1F);
                     }
                     break;
             }
@@ -283,13 +310,13 @@ void execute(RISC_V *risc, DecodedInstr d) {
                 case 0x0:
                     if (d.funct7 == 0x20) {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] - risc -> regs[d.rs2];
-                        printf("SUB x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SUB x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else if (d.funct7 == 0x01) {
                         risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] * (int32_t)risc -> regs[d.rs2];
-                        printf("MUL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("MUL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] + risc -> regs[d.rs2];
-                        printf("ADD x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("ADD x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -297,10 +324,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
                     if (d.funct7 == 0x01) {
                         int64_t full_res = (int64_t)(int32_t)risc -> regs[d.rs1] * (int64_t)(int32_t)risc -> regs[d.rs2];
                         risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
-                        printf("MULH x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("MULH x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] << (risc -> regs[d.rs2] & 0x1F);
-                        printf("SLL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SLL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -311,10 +338,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
                         } else {
                             risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] / (int32_t)risc -> regs[d.rs2];
                         }
-                        printf("DIV x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("DIV x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] ^ risc -> regs[d.rs2];
-                        printf("XOR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("XOR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -325,10 +352,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
                         } else {
                             risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] % (int32_t)risc -> regs[d.rs2];
                         }
-                        printf("REM x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("REM x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] | risc -> regs[d.rs2];
-                        printf("OR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("OR x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -336,10 +363,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
                     if (d.funct7 == 0x01) {
                         int64_t full_res = (int64_t)(int32_t)risc -> regs[d.rs1] * (int64_t)(uint64_t)risc -> regs[d.rs2];
                         risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
-                        printf("MULHSU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("MULHSU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = ((int32_t)risc -> regs[d.rs1] < (int32_t)risc -> regs[d.rs2]) ? 1 : 0;
-                        printf("SLT x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SLT x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -347,27 +374,27 @@ void execute(RISC_V *risc, DecodedInstr d) {
                     if (d.funct7 == 0x01) {
                         uint64_t full_res = (uint64_t)risc -> regs[d.rs1] * (uint64_t)risc -> regs[d.rs2];
                         risc -> regs[d.rd] = (uint32_t)(full_res >> 32);
-                        printf("MULHU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("MULHU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = (risc -> regs[d.rs1] < risc -> regs[d.rs2]) ? 1 : 0;
-                        printf("SLTU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SLTU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
                 case 0x5:
                     if (d.funct7 == 0x20) {
                         risc -> regs[d.rd] = (int32_t)risc -> regs[d.rs1] >> (risc -> regs[d.rs2] & 0x1F);
-                        printf("SRA x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SRA x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else if (d.funct7 == 0x01) {
                         if (risc -> regs[d.rs2] == 0) {
                             risc -> regs[d.rd] = 0xFFFFFFFF;
                         } else {
                             risc -> regs[d.rd] = risc -> regs[d.rs1] / risc -> regs[d.rs2];
                         }
-                        printf("DIVU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("DIVU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = (uint32_t)risc -> regs[d.rs1] >> (risc -> regs[d.rs2] & 0x1F);
-                        printf("SRL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("SRL x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
 
@@ -378,10 +405,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
                         } else {
                             risc -> regs[d.rd] = risc -> regs[d.rs1] % risc -> regs[d.rs2];
                         }
-                        printf("REMU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("REMU x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     } else {
                         risc -> regs[d.rd] = risc -> regs[d.rs1] & risc -> regs[d.rs2];
-                        printf("AND x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
+                        TRACCIA("AND x%d, x%d, x%d\n", d.rd, d.rs1, d.rs2);
                     }
                     break;
             }
@@ -392,7 +419,7 @@ void execute(RISC_V *risc, DecodedInstr d) {
                 uint32_t return_addr = risc -> pc;
                 risc -> pc = (risc -> regs[d.rs1] + d.imm) & ~1;
                 risc -> regs[d.rd] = return_addr;
-                printf("JALR x%d, x%d, %d\n", d.rd, d.rs1, d.imm);
+                TRACCIA("JALR x%d, x%d, %d\n", d.rd, d.rs1, d.imm);
             }
             break;
 
@@ -402,51 +429,51 @@ void execute(RISC_V *risc, DecodedInstr d) {
             val2 = risc -> regs[d.rs2];
             switch (d.funct3) {
                 case 0x0: if (val1 == val2) { branch_taken = 1; }
-                    printf("BEQ ");
+                    TRACCIA("BEQ ");
                     break;
 
                 case 0x1: if (val1 != val2) { branch_taken = 1; }
-                    printf("BNE ");
+                    TRACCIA("BNE ");
                     break;
 
                 case 0x4: if ((int32_t)val1 < (int32_t)val2) { branch_taken = 1; }
-                    printf("BLT ");
+                    TRACCIA("BLT ");
                     break;
 
                 case 0x5: if ((int32_t)val1 >= (int32_t)val2) { branch_taken = 1; }
-                    printf("BGE ");
+                    TRACCIA("BGE ");
                     break;
 
                 case 0x6: if (val1 < val2) { branch_taken = 1; }
-                    printf("BLTU ");
+                    TRACCIA("BLTU ");
                     break;
 
                 case 0x7: if (val1 >= val2) { branch_taken = 1; }
-                    printf("BGEU ");
+                    TRACCIA("BGEU ");
                     break;
 
             }
             if (branch_taken) {
                 risc -> pc = (risc -> pc - 4) + d.imm;
             }
-            printf("x%d, x%d, %d\n", d.rs1, d.rs2, d.imm);
+            TRACCIA("x%d, x%d, %d\n", d.rs1, d.rs2, d.imm);
             break;
 
         case LUI:
             risc -> regs[d.rd] = d.imm;
-            printf("LUI x%d, 0x%x\n", d.rd, d.imm);
+            TRACCIA("LUI x%d, 0x%x\n", d.rd, d.imm);
             break;
 
         case AUIPC:
             risc -> regs[d.rd] = (risc -> pc - 4) + d.imm;
-            printf("AUIPC x%d, 0x%x\n", d.rd, d.imm);
+            TRACCIA("AUIPC x%d, 0x%x\n", d.rd, d.imm);
             break;
 
 
         case JAL:
             risc -> regs[d.rd] = risc -> pc;
             risc -> pc = (risc -> pc - 4) + d.imm;
-            printf("JAL x%d, %d\n", d.rd, d.imm);
+            TRACCIA("JAL x%d, %d\n", d.rd, d.imm);
             break;
 
         case PCIO:
@@ -473,7 +500,7 @@ void execute(RISC_V *risc, DecodedInstr d) {
                     Serve a far perdere dati, non a funzionare: in pratica utilizzato
                     solo per avere un confronto con gli altri dati.
                 */
-                if (nobp()) {
+                if (nobp_on) {
                     if (d.funct3 == 0x0){
                         risc -> regs[d.rd] = in ? in -> data : 0;          /* IN */
                     }
@@ -498,32 +525,32 @@ void execute(RISC_V *risc, DecodedInstr d) {
 
                 if (d.funct3 == 0x0) { /* IN */
                     risc  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
-                    printf("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, risc -> regs[d.rd]);
+                    TRACCIA("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, risc -> regs[d.rd]);
                 }
                 else if (d.funct3 == 0x1) { /* OUT */
                     ch_write(&risc->out_ch[dir], risc->regs[d.rs1]);
-                    printf("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, risc -> regs[d.rs1]);
+                    TRACCIA("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, risc -> regs[d.rs1]);
                 }
                 else if(d.funct3 == 0x2) { /* ISRDY */
                     risc  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
                     if (!risc -> regs[d.rd]) {
                         risc -> attese++;
                     }
-                    printf("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
+                    TRACCIA("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
                 }
                 else if(d.funct3 == 0x3) { /* SETRDY */
                     risc  ->  regs[d.rd] = ch_setrdy(&risc  ->  out_ch[dir]);
                     if (!risc -> regs[d.rd]) {
                         risc -> ritentativi++;
                     }
-                    printf("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
+                    TRACCIA("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
                 }
                 break;
             }
 
         case ECALL:
             risc -> running = false;
-            printf("ECALL -> RISC %d fermato\n", risc->risc_id);
+            TRACCIA("ECALL -> RISC %d fermato\n", risc->risc_id);
             break;
 
         default:

@@ -61,7 +61,12 @@ void carica_elf_in_risc(RISC_V *risc, uint8_t *elf_content, Elf32_Ehdr *header, 
 
     for (int i = 0; i < header->e_shnum; i++) {
         if (sections[i].sh_type == 1 && (sections[i].sh_flags & 2)) {
-            if (sections[i].sh_addr + sections[i].sh_size > RAM_SIZE) {
+            /*
+                la somma in uint64_t, non in uint32_t: due campi presi da un
+                file possono sommare oltre 2^32 e avvolgersi, passando una
+                guardia scritta sui soli 32 bit
+            */
+            if ((uint64_t)sections[i].sh_addr + sections[i].sh_size > sizeof(risc -> memory)) {
                 printf("Avviso: Sezione %d ignorata (fuori RAM)\n", i);
                 continue;
             }

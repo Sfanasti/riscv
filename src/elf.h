@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include "risc.h"
 
-#define RAM_SIZE 16384
 #define EI_NIDENT 16
 #define ELFCLASS32 1
 #define ELFDATA2LSB 1

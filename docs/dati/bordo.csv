@@ -1,0 +1,8 @@
+kernel,righe,colonne,cicli,ritentativi,attese,valore,usciti
+bordo,1,1,9,0,1,7,1
+bordo,1,6,9,0,6,7,6
+bordo,6,1,39,0,51,7,1
+bordo,3,4,21,0,48,7,4
+bordo,4,4,27,0,88,7,4
+bordo,8,8,51,0,736,7,8
+bordo,12,12,75,0,2520,7,12

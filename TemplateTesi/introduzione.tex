@@ -1,0 +1,97 @@
+% !TEX root = Tesi_Corsi_Leonardo_656276.tex
+\chapter{Introduzione}
+\label{ch:introduzione}
+
+Un array sistolico è una griglia bidimensionale di unità di calcolo identiche
+che comunicano esclusivamente con i vicini immediati: i dati attraversano la
+griglia in maniera sincrona, con passi scanditi dal ciclo di clock, e ogni unità, 
+a ogni ciclo, elabora ciò che riceve dalle unità di calcolo adiacenti.
+
+Il modo più semplice di realizzare un array di questo tipo è collegare le
+unità con canali privi di un meccanismo di sincronizzazione esplicito: il
+produttore scrive il dato nel canale quando il proprio calcolo lo produce, il
+consumatore lo legge quando il proprio calcolo lo richiede, e nessuno dei due
+segnala all'altro lo stato del canale. La correttezza di questo schema
+dipende allora per intero dalla schedulazione temporale con cui l'host
+alimenta l'array, che deve conoscere in anticipo a quale ciclo ciascuna unità
+si aspetta ciascun dato. Se lo scarto fra l'istante di produzione e quello di
+consumo non coincide con quello previsto dalla schedulazione, una cella
+riceve un operando associato a un'iterazione diversa da quella attesa: il
+calcolo procede regolarmente, ma su dati non corrispondenti, e produce un
+risultato numericamente definito ma errato, senza che alcun componente rilevi
+l'anomalia.
+\clearpage
+La tesi adotta un principio elementare per rimuovere questa dipendenza dalla
+schedulazione: impostare canali sincroni che usano \emph{ready bit} in grado di
+modificare l'eventuale flusso di dati nel canale. Ciascun lato del canale possiede
+un registro da un bit e commuta soltanto il proprio, il produttore quando il dato è
+pronto e il consumatore quando lo ha prelevato; è il confronto fra i due registri,
+e non il valore dell'uno o dell'altro, a dire se il canale è pieno o vuoto. Nessuno
+dei due lati deve quindi conoscere in anticipo il comportamento temporale
+dell'altro, e il risultato del calcolo smette di dipendere dalla velocità relativa
+dei nodi.
+
+La verifica di questo principio è oggetto della costruzione di
+\textbf{NESO}\footnote{Il nome corrisponde alle quattro direzioni cardinali
+(nord, est, sud, ovest), le sole lungo le quali una cella può comunicare.}, un
+simulatore di array bidimensionale di processori RISC-V, corredato dalla
+modellazione in SystemVerilog del meccanismo di canale sincrono e dai programmi che ne
+verificano il comportamento.
+
+\section{Il lavoro in sintesi}
+\label{sec:sintesi}
+
+NESO simula una griglia $R \times C$ di celle. Ogni cella è un processore
+RISC-V completo, con i suoi trentadue registri, il suo \emph{program counter} e
+la sua memoria privata; le celle non condividono memoria e comunicano solo con i
+quattro vicini ortogonali attraverso canali monodirezionali di profondità uno.
+Il tempo è globale e discreto: a ogni ciclo di clock ogni cella viva esegue
+esattamente una istruzione.
+
+Il punto di partenza è l'interprete a singolo processore RISC-V sviluppato in una
+tesi precedente~\cite{TesiStella}. A partire da quello sono stati realizzati:
+
+\begin{itemize}
+    \item il \textbf{canale} e il suo protocollo, in cui tutto lo stato di
+          sincronizzazione è costituito da due contatori a un bit e dai
+          comparatori che li confrontano;
+    \item quattro \textbf{istruzioni di comunicazione} (\texttt{IN},
+          \texttt{OUT}, \texttt{ISRDY}, \texttt{SETRDY}) aggiunte all'insieme
+          RV32I usando lo spazio di codifica \emph{custom-0} che la
+          specifica RISC-V lascia libero, senza modificare l'assemblatore;
+    \item la \textbf{griglia}: topologia, cablaggio dei vicini, clock globale con
+          aggiornamento a due fasi e ingresso/uscita sul perimetro;
+    \item nove \textbf{programmi di prova} in assembly, con i programmi di
+          verifica in C che li eseguono e ne controllano il risultato con delle
+          asserzioni: dal protocollo minimo fra due celle alla moltiplicazione
+          di matrici e allo stencil di Jacobi;
+    \item il \textbf{modello RTL} del canale e dell'interfaccia di cella in
+          SystemVerilog, verificato con due \emph{testbench} e sintetizzato per
+          contare quante porte costa il protocollo;
+    \item la \textbf{parallelizzazione} del simulatore con OpenMP, insieme alla relativa analisi
+          di scalabilità
+\end{itemize}
+Il simulatore, i nove programmi in assembly e i programmi di verifica in C che
+li misurano sono stati sviluppati interamente nel corso di questa tesi: i dati
+riportati nel capitolo~\ref{ch:risultati} sono il loro risultato diretto.
+
+\section{Organizzazione del lavoro}
+\label{sec:organizzazione}
+
+Il capitolo~\ref{ch:strumenti} presenta gli strumenti impiegati: l'architettura
+RISC-V e il sottoinsieme RV32I, i linguaggi usati per le tre viste del sistema
+(C per il simulatore, assembly per i programmi, SystemVerilog per il modello
+hardware) e OpenMP. Il capitolo~\ref{ch:progetto} descrive il progetto
+logico, ovvero l'architettura dell'array e la struttura fisica di una cella e
+di un canale, e discute i due piani su cui il lavoro è parallelo: il calcolo
+distribuito sulle celle e l'esecuzione del simulatore stesso. Il
+capitolo~\ref{ch:implementazione} tratta i dettagli più singificativi dell'
+implementazione: la codifica delle quattro istruzioni, il ciclo di clock a due 
+fasi su cui si fonda la sincronizzazione, il protocollo del canale con l'invariante 
+che ne garantisce la correttezza, lo stato dei registri di ogni cella 
+e la corrispondenza con il modello in SystemVerilog. Il capitolo~\ref{ch:risultati} raccoglie i
+risultati: cosa dimostra ciascun programma di prova, il confronto con il caso
+privo del \emph{ready bit}, il costo in cicli in funzione della forma
+della griglia e le prestazioni del simulatore.\ifconclusioni{} Il
+capitolo~\ref{ch:conclusioni} riassume il lavoro svolto e l'esperienza di
+sviluppo, e indica gli sviluppi futuri.\fi

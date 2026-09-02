@@ -1,5 +1,21 @@
 /ROADMAP.txt
 /graphify-out
-/stella
+/neso
 /test_isa.o
 /test_isa.s
+/build/
+/hw/sim
+/hw/*.vcd
+
+# Output della compilazione LaTeX
+/TemplateTesi/*.aux
+/TemplateTesi/*.bbl
+/TemplateTesi/*.blg
+/TemplateTesi/*.fdb_latexmk
+/TemplateTesi/*.fls
+/TemplateTesi/*.lof
+/TemplateTesi/*.log
+/TemplateTesi/*.out
+/TemplateTesi/*.pdf
+/TemplateTesi/*.synctex.gz
+/TemplateTesi/*.toc

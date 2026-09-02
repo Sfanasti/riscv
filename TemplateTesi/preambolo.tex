@@ -1,0 +1,202 @@
+% !TEX root = Tesi_Corsi_Leonardo_656276.tex
+% Preambolo condiviso fra la tesi completa e il PDF dei soli capitoli 1-3.
+% Non contiene \begin{document}: lo apre corpo.tex.
+
+% Template Tesi in Informatica, ispirata al template "Tesi di laurea - Università di Pisa" di Simone Schirinzi (https://www.overleaf.com/latex/templates/tesi-di-laurea-universita-di-pisa/rwdcqtqwftpg).
+
+% Carattere dimensione 12
+\documentclass[12pt]{report}
+
+% Per la stampa fronte-retro sostituire con:
+% \documentclass[12pt, twoside]{report}
+
+% Margini (4cm a sx, 2.5cm a dx, 2.5cm in alto, 2.5cm in basso)
+% head=21.75pt: spazio per la testatina, il valore richiesto da scrlayer-scrpage
+\usepackage[top=2.5cm, bottom=2.5cm, left=4cm, right=2.5cm, head=21.75pt, centering]{geometry}
+
+% Per la stampa fronte-retro sostituire con: 
+% \usepackage[top=2.5cm, bottom=2.5cm, inner=4cm, outer=4cm, right=2.5cm, centering]{geometry}
+
+% Interlinea
+\linespread{1.5}
+
+% Librerie utili
+\usepackage[italian]{babel} % applicazione regole di scrittura per la lingua italiana 
+\usepackage[utf8]{inputenc} % codifica UTF-8
+\usepackage{scrlayer-scrpage} % stili pagina: testatine e pie' di pagina
+% Testatina: capitolo a sinistra, numero di pagina a destra, riga di separazione.
+% Le pagine di apertura capitolo restano senza testatina (stile plain) e il
+% numero di pagina lo tengono in fondo: e' la forma fra parentesi quadre.
+\automark[section]{chapter}
+\ihead[]{\headmark}
+\chead[]{}
+\ohead[]{\pagemark}
+\ifoot[]{}
+\cfoot[]{}
+\ofoot[\pagemark]{}
+\KOMAoptions{headsepline=true}
+\pagestyle{scrheadings}
+\usepackage{mathptmx} % font Times New Roman (simile)
+\usepackage{graphicx} % inserimento di immagini
+\usepackage{csquotes} % per le citazioni "in blocco"
+\usepackage{url} % per \url{} nelle voci di bibliografia
+%\usepackage[backend=biber, sorting=nty, ]{biblatex} % bibliografia con pacchetto biblatex (https://ctan.org/pkg/biblatex?lang=en)
+\appto{\bibsetup}{\raggedright}
+
+\usepackage{titlesec} % per la formattazione dei titoli delle sezioni, capitoli etc.
+\usepackage{float} % per il posizionamento delle immagini
+\usepackage{booktabs} % \toprule \midrule \bottomrule per le tabelle dei risultati
+\usepackage{tikz} % per i disegni dell'architettura
+\usetikzlibrary{arrows.meta, calc}
+\usepackage{pgfplots} % per i grafici delle misure
+\pgfplotsset{compat=1.18}
+\usepackage{amsmath} % per le formule dei costi
+\usepackage{amssymb} % \square a fine dimostrazione
+
+\usepackage{listings} % per il codice di programmazione
+% Fonte https://en.wikibooks.org/wiki/LaTeX/Source_Code_Listings. Per la lista di sintassi riconosciute.
+\renewcommand{\lstlistingname}{Codice}% Listing -> Codice
+\usepackage{xcolor}  % stile del codice
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+\definecolor{darkgray}{rgb}{.4,.4,.4}
+\definecolor{navy}{HTML}{000080}
+\definecolor{purple}{rgb}{0.65, 0.12, 0.82}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+% Stili configurabili del codice (lslisting) 
+\lstset{ %
+belowcaptionskip=0.5em,
+backgroundcolor=\color{backcolour}, % choose the background color; you must add \usepackage{color} or \usepackage{xcolor}
+basicstyle=\footnotesize, % the size of the fonts that are used for the code
+breakatwhitespace=false, % sets if automatic breaks should only happen at whitespace
+breaklines=true, % sets automatic line breaking
+captionpos=b, % sets the caption-position to bottom
+commentstyle=\color{mygreen}, % comment style
+deletekeywords={...}, % if you want to delete keywords from the given language
+escapeinside={\%*}{*)}, % if you want to add LaTeX within your code
+extendedchars=true, % lets you use non-ASCII characters; for 8-bits encodings only, does not work with UTF-8
+frame=single, % adds a frame around the code
+keepspaces=true, % keeps spaces in text, useful for keeping indentation of code (possibly needs columns=flexible)
+keywordstyle=\color{codepurple}, % keyword style
+% language=Octave, % the language of the code
+morekeywords={*,...}, % if you want to add more keywords to the set
+numbers=left, % where to put the line-numbers; possible values are (none, left, right)
+numbersep=5pt, % how far the line-numbers are from the code
+numberstyle=\tiny\color{mygray}, % the style that is used for the line-numbers
+rulecolor=\color{black}, % if not set, the frame-color may be changed on line-breaks within not-black text (e.g. comments (green here))
+showspaces=false, % show spaces everywhere adding particular underscores; it overrides 'showstringspaces'
+showstringspaces=false, % underline spaces within strings only
+showtabs=false, % show tabs within strings adding particular underscores
+stepnumber=1, % the step between two line-numbers. If it's 1, each line will be numbered
+stringstyle=\color{mymauve}, % string literal style
+tabsize=2, % sets default tabsize to 2 spaces
+title=\lstname % show the filename of files included with \lstinputlisting; also try caption instead of title
+}
+
+% END of listing package 
+
+% Esempio riconoscimento sintassi JavaScript 
+
+\lstdefinelanguage{JavaScript}{
+  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, const, let, if, in, while, do, else, case, break},
+  keywordstyle=\color{blue}\bfseries,
+  ndkeywords={class, export, boolean, throw, implements, import, this},
+  ndkeywordstyle=\color{darkgray}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{mygreen}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+
+% Assembly RISC-V: le istruzioni rv32i usate dai kernel, piu' le quattro
+% istruzioni di comunicazione dell'estensione, evidenziate a parte.
+\lstdefinelanguage{RISCV}{
+  keywords={add, addi, sub, and, andi, or, ori, xor, xori, sll, slli, srl, srli,
+            sra, srai, slt, slti, sltu, sltiu, lui, auipc, lw, lh, lhu, lb, lbu,
+            sw, sh, sb, beq, bne, blt, bge, bltu, bgeu, beqz, bnez, blez, bgez,
+            j, jal, jalr, mv, li, la, ret, nop, ecall, mul},
+  keywordstyle=\color{codepurple}\bfseries,
+  ndkeywords={IN, OUT, ISRDY, SETRDY, NORD, EST, SUD, OVEST},
+  ndkeywordstyle=\color{navy}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=true,
+  comment=[l]{\#},
+  commentstyle=\color{mygreen}\ttfamily,
+  morestring=[b]",
+  stringstyle=\color{mymauve}\ttfamily
+}
+
+\lstset{
+   extendedchars=true,
+   basicstyle=\footnotesize\ttfamily,
+   showstringspaces=false,
+   showspaces=false,
+   numbers=left,
+   numberstyle=\footnotesize,
+   numbersep=9pt,
+   tabsize=2,
+   breaklines=true,
+   showtabs=false,
+   captionpos=b
+   % I listati sono oggetti mobili, cosi' non vengono mai spezzati fra due
+   % pagine e la didascalia resta attaccata al codice. La chiave 'float' NON
+   % ha effetto se data qui: va messa nell'argomento opzionale di ogni
+   % lstlisting, e li' infatti c'e'. Un 'float=htbp' in questo blocco lascia
+   % credere di coprire il caso senza coprirlo, quindi non c'e'.
+}
+
+% Nessuna riga vedova o orfana: una riga sola staccata dal suo paragrafo
+% e' il difetto di impaginazione piu' visibile in un testo interlinea 1,5
+\widowpenalty=10000
+\clubpenalty=10000
+
+% Nessun oggetto mobile scavalca l'inizio di una sottosezione. Senza questa
+% barriera un listato o una figura che non entrano nella pagina corrente
+% vengono rinviati alla prima posizione utile, che puo' cadere DOPO il titolo
+% della sottosezione seguente: il codice di reduce finiva sotto il titolo di
+% matmul, dove si legge come se fosse di matmul. L'opzione [section] copre i
+% titoli di sezione, la ridefinizione sotto quelli di sottosezione.
+\usepackage[section]{placeins}
+\let\originalsubsection\subsection
+\renewcommand{\subsection}{\FloatBarrier\originalsubsection}
+
+% Parametri dei float. Con i valori predefiniti una figura alta piu' di meta'
+% pagina finisce su una pagina tutta sua, con fasce bianche sopra e sotto:
+% questi permettono di mettere figura e testo sulla stessa pagina.
+\renewcommand{\topfraction}{0.85}      % quota di pagina occupabile da float in alto
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.1}      % testo minimo su una pagina mista
+\renewcommand{\floatpagefraction}{0.8} % quanto deve essere pieno per meritare una pagina sua
+\makeatletter
+\setlength{\@fptop}{0pt}               % le pagine di soli float partono dall'alto
+\makeatother
+
+% Interruttore per le bozze parziali. Un file principale che scriva
+% \conclusionifalse subito dopo \input{preambolo} esclude il capitolo 6 dalla
+% composizione, dall'indice e dai rimandi che lo nominano, in un colpo solo.
+% Va fatto cosi' e non con \includeonly: per un capitolo escluso da
+% \includeonly LaTeX legge lo stesso il suo .aux, quindi le voci finirebbero
+% comunque nell'indice e i contatori di fine capitolo farebbero saltare la
+% numerazione delle pagine.
+\newif\ifconclusioni
+\conclusionitrue
+
+% Formato delle intestazioni
+% Intestazione di capitolo su due righe: "Capitolo N" e sotto il titolo.
+% \chaptertitlename vale "Capitolo" e diventa "Appendice" dopo \appendix.
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}   % formato del blocco
+  {\chaptertitlename\ \thechapter} % etichetta
+  {20pt}                        % distanza fra etichetta e titolo
+  {\Huge}                       % formato del titolo
+\titlespacing*{\chapter}{0pt}{50pt}{40pt}
+
+% Indice fino alle sottosezioni: i \paragraph restano fuori
+\setcounter{tocdepth}{2}

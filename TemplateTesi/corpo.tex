@@ -1,0 +1,57 @@
+% !TEX root = Tesi_Corsi_Leonardo_656276.tex
+% Corpo condiviso: frontespizio, indice e i sei capitoli.
+% Quali capitoli vengano davvero composti lo decide \includeonly nel file
+% principale che include questo.
+\begin{document}
+
+% Frontespizio
+\begin{titlepage}
+\begin{figure}
+    \centering\includegraphics[scale=0.5]{immagini/cherubino_pant541.png}
+\end{figure}
+
+\begin{center}
+    {\LARGE{ UNIVERSITÀ DI PISA\\}}
+    \vspace{1cm}
+    {\Large { DIPARTIMENTO DI INFORMATICA}}\\
+    \vspace{1cm}
+    {\large {LAUREA TRIENNALE IN INFORMATICA}}\\
+    \vspace{2cm}
+    {\Large {Simulatore di un array sistolico bi-dimensionale\\ basato su RISC-V}}
+\end{center}
+
+\vspace{2cm}
+
+\begin{minipage}[t]{0.47\textwidth}
+	{\large{\bf Relatore:\\Marco Danelutto}}
+	\vspace{0.5cm}
+	
+\end{minipage}\hfill\begin{minipage}[t]{0.47\textwidth}\raggedleft
+	{\large{\bf Candidato: \\ Leonardo Corsi\\ }}
+\end{minipage}
+
+\vspace{25mm}
+
+\centering{\large{\bf ANNO ACCADEMICO 2025/2026 }}
+\end{titlepage}
+% Fine frontespizio
+
+\tableofcontents
+\thispagestyle{empty}
+
+\clearpage
+\setcounter{page}{1}
+\addtocontents{toc}{\protect\thispagestyle{empty}}
+\include{introduzione}
+\include{strumenti}
+\include{progetto_logico}
+\include{implementazione}
+\include{risultati}
+\ifconclusioni\include{conclusioni}\fi
+
+\bibliographystyle{plain} % We choose the "plain" reference style
+\bibliography{bibliography} % Entries are in the refs.bib file
+%\addbibresource{bibliography.bib}
+%\printbibliography
+
+\end{document}
