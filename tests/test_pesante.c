@@ -53,7 +53,7 @@ static uint32_t mescola(uint32_t x, int peso) {
 
 /*
     Una iterazione completa: la condizione al bordo sostituisce i vicini che
-    cadono fuori dalla griglia, esattamente come l'ospite li alimenta con
+    cadono fuori dalla griglia, esattamente come l'host li alimenta con
     grid_border_fill.
 */
 static void passo(const uint32_t *u, uint32_t *un, int rows, int cols,
@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
         for (int b = 0; b < BLOCCO && cicli < MAX_CICLI; b++) {
             /*
                 alimentare il contorno e drenare il perimetro, entrambi PRIMA
-                del passo, così l'ospite paga la stessa latenza di un ciclo
+                del passo, così l'host paga la stessa latenza di un ciclo
                 per salto di ogni cella
             */
             grid_border_fill(&g, bordo);

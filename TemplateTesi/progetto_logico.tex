@@ -2,44 +2,66 @@
 \chapter{Progetto logico}
 \label{ch:progetto}
 
+Il capitolo descrive le scelte di progetto prima di qualunque riga di codice, e
+procede dal generale al particolare. Le prime due sezioni definiscono il
+modello dell'array e la cella che lo compone. La terza tratta i dettagli di 
+progettazione del canale, che è l'unico meccanismo di interazione dell'intero 
+sistema e ne concentra tutte le scelte non ovvie. 
+La quarta mostra come il programma host si affacci sul perimetro senza
+essere un caso speciale, e la quinta discute i due piani di parallelismo del
+progetto, quello dell'array simulato e quello del simulatore, che il resto
+della tesi tiene distinti.
+
+Da qui in poi, il termine \emph{simulatore} indica l'intero programma, ovvero
+la parte che fa avanzare l'array ciclo per ciclo e il \emph{programma host},
+che immette e consuma i valori sul perimetro e ne raccoglie i risultati.
+L'\emph{array} e le sue celle esistono soltanto dentro il simulatore.
+La distinzione vale per tutte le grandezze che seguono: cicli, istruzioni, canali
+e protocollo appartengono all'array simulato, thread e speedup al simulatore.
+
 \section{Il modello dell'array}
 \label{sec:architettura}
 
 NESO simula una griglia rettangolare di $R \times C$ celle. Ogni cella è un
 processore RISC-V completo e indipendente: ha i suoi registri, il suo
 \emph{program counter} e la sua memoria privata. Non esiste memoria condivisa,
-non esiste un bus, non esiste un nodo di coordinamento. L'unico modo che una
-cella ha di influenzare il resto del sistema è mandare una parola a uno dei
-quattro vicini ortogonali.
+non esiste un bus, non esiste un nodo di coordinamento. L''unico modo che una cella 
+ha per influenzare il resto del sistema è mandare una parola a uno dei quattro vicini 
+ortogonali, e l'unico modo di esserne influenzata è riceverne una.
 
 Le regole del modello sono quattro:
 
 \begin{enumerate}
-    \item \textbf{connessioni solo locali.} La cella in posizione $(r,c)$ parla
+    \item \emph{connessioni solo locali.} La cella in posizione $(r,c)$ parla
           con $(r-1,c)$, $(r,c+1)$, $(r+1,c)$ e $(r,c-1)$, e con nessun altro.
           Le direzioni sono nominate nord, est, sud e ovest e numerate in un
           solo modo in tutto il progetto (Nord = 0, Est = 1, Sud = 2, Ovest = 3), 
-          così che la direzione opposta si ottenga con uno \emph{xor}: $\mathrm{opp}(d) = d \oplus 2$.
-    \item \textbf{tempo globale e discreto.} Esiste un clock unico. A ogni ciclo
+          così che la direzione opposta si ottenga invertendo con uno \emph{xor}
+          il più significativo dei due bit che la rappresentano:
+          $\mathrm{opp}(d) = d \oplus 2$.
+    \item \emph{tempo globale e discreto.} Esiste un clock unico. A ogni ciclo
           ogni cella ancora attiva esegue esattamente una istruzione.
-    \item \textbf{canali monodirezionali di profondità uno.} Fra due celle
+    \item \emph{canali monodirezionali di una posizione.} Fra due celle
           adiacenti esistono due canali, di direzione opposta, e ciascuno può contenere
           al più una parola non ancora letta.
-    \item \textbf{un solo programma.} Tutte le celle eseguono la stessa immagine
-          di memoria; il ruolo che ciascuna assume lo decide leggendo la propria
-          posizione.
+        \item \emph{un solo programma.} Tutte le celle eseguono lo stesso programma,
+          di cui ciascuna ha una copia nella propria memoria; il ruolo che
+          ciascuna assume lo decide leggendo la propria posizione.
+
 \end{enumerate}
 
-L'ultima regola è ciò che rende il modello un array e non un insieme di
-processori diversi messi vicini, ed è la stessa proprietà su cui si regge la
-sua realizzabilità in hardware: si costruisce una cella e la si replica.
+L'ultima regola rende il modello un array e non un insieme di
+processori diversi messi vicini. È anche la proprietà su cui si regge la sua
+realizzabilità in hardware: si costruisce una cella e la si replica.
 
-È il modello di esecuzione \textbf{SPMD} (\emph{Single Program, Multiple
-Data})~\cite{Darema}: un solo binario gira su tutte le celle, e a differenziarne
-il comportamento è un salto condizionato sulla propria posizione. Nel
-programma produttore-consumatore, per esempio, la cella di colonna 0
+È il modello di esecuzione SPMD (\emph{Single Program, Multiple
+Data})~\cite{Darema}: un solo codice binario gira su tutte le celle, e a differenziarne
+il comportamento sono eventuali salti condizionati a seconda della propria posizione
+nell'array, che è un'informazione già nota ai nodi per costruzione. 
+Nel programma produttore-consumatore, per esempio, la cella di colonna 0
 produce e le altre consumano. Il meccanismo con cui una cella conosce la
-propria posizione è nella sezione~\ref{sec:registri}.
+propria posizione è nella sezione~\ref{sec:registri}. La
+figura~\ref{fig:array} mostra la topologia e il cablaggio appena descritti.
 
 \begin{figure}[htbp]
     \centering
@@ -69,7 +91,7 @@ propria posizione è nella sezione~\ref{sec:registri}.
             \draw[canale] ([xshift=3mm]n\rr\c.north) -- ([xshift=3mm]n\r\c.south);
         }
     }
-    % il bordo: i canali che l'ospite alimenta e drena
+    % il bordo: i canali di perimetro
     \foreach \c in {0,1,2} {
         \draw[bordo] ([xshift=-3mm]$(n0\c.north)+(0,0.8)$) -- ([xshift=-3mm]n0\c.north);
         \draw[bordo] ([xshift=3mm]n0\c.north) -- ([xshift=3mm]$(n0\c.north)+(0,0.8)$);
@@ -82,46 +104,50 @@ propria posizione è nella sezione~\ref{sec:registri}.
         \draw[bordo] ([yshift=3mm]n\r2.east) -- ([yshift=3mm]$(n\r2.east)+(0.8,0)$);
         \draw[bordo] ([yshift=-3mm]$(n\r2.east)+(0.8,0)$) -- ([yshift=-3mm]n\r2.east);
     }
-    % tutto cio' che sta fuori dall'array e' il programma ospite
+    % tutto cio' che sta fuori dall'array e' l'host
     \draw[gray, dashed, rounded corners]
         ($(n00.north west)+(-1.3,1.3)$) rectangle ($(n22.south east)+(1.3,-1.3)$);
     \node[gray, font=\small\itshape, fill=white, inner sep=2pt]
-        at ($(n02.north east)+(0.35,1.3)$) {programma ospite};
+        at ($(n02.north east)+(0.35,1.3)$) {host};
     \end{tikzpicture}
     \caption[Topologia dell'array e canali verso i quattro vicini]{Topologia
     dell'array. Fra due celle adiacenti corrono due canali monodirezionali, uno
     per verso. Sul perimetro le direzioni che punterebbero fuori dalla griglia
-    sono collegate a canali di bordo (tratteggiati), che il programma ospite
-    alimenta e drena con le stesse operazioni di una cella vicina.}
+    sono collegate a canali di bordo (tratteggiati), che l'host
+    alimenta e consuma con le stesse operazioni di una cella vicina. La coppia
+    $(r,c)$ che etichetta ogni cella è la sua posizione nell'array, riga e
+    colonna, sulla quale il programma si dirama per differenziare il
+    comportamento dei singoli nodi (sezione~\ref{sec:registri}).}
     \label{fig:array}
 \end{figure}
 
-\clearpage
 
 \section{La cella}
 \label{sec:cella}
 
-Una cella contiene lo stato di un processore RV32I e nient'altro:
+Una cella contiene lo stato di un processore RV32I, la memoria su cui lavora
+e i canali con cui parla ai vicini:
 
 \begin{itemize}
-    \item i \textbf{trentadue registri} interi dell'architettura, con
+    \item i trentadue registri interi dell'architettura, con
           \texttt{x0} cablato a zero;
-    \item il \textbf{program counter};
-    \item una \textbf{memoria privata} di 16\,KB, indirizzata a byte, che
+    \item il program counter;
+    \item una memoria privata di 16\,KB, indirizzata a byte, che
           contiene sia il codice sia i dati;
-    \item quattro \textbf{canali di uscita}, uno per direzione, di cui la cella è
+    \item quattro canali di uscita, uno per direzione, di cui la cella è
           l'unica proprietaria;
-    \item quattro \textbf{riferimenti a canali di ingresso}, che sono i canali di
+    \item quattro riferimenti a canali di ingresso, che sono i canali di
           uscita dei vicini;
-    \item due \textbf{contatori} di misura, descritti nella
-          sezione~\ref{sec:metodologia}.
+    \item due contatori di misura, tenuti dal simulatore a supporto delle misure 
+          descritte nella sezione~\ref{sec:metodologia}.
 \end{itemize}
-La memoria privata è il punto in cui il modello è più rigido del necessario:
+La memoria privata è il punto in cui il modello risulta più vincolante del necessario:
 16\,KB per cella significa che una griglia $12 \times 12$ occupa
-già più di due megabyte di sola memoria simulata. La dimensione è però una
-costante di compilazione (\texttt{MEM\_SIZE} in \texttt{risc.h}), non un
-vincolo intrinseco del modello: ridurla per griglie più grandi richiede di
-cambiare quella costante e ricompilare, non di modificare l'architettura.
+già più di due megabyte di sola memoria simulata. Questa capacità è però una
+costante che può essere modificata a tempo di compilazione (\texttt{MEM\_SIZE} in 
+\texttt{risc.h}), non un vincolo intrinseco del modello: per griglie più grandi è
+sufficiente ridurre tale costante e ricompilare, non modificare l'architettura. La
+figura~\ref{fig:cella} riassume gli elementi appena elencati.
 
 \begin{figure}[htbp]
     \centering
@@ -169,96 +195,118 @@ cambiare quella costante e ricompilare, non di modificare l'architettura.
     \node[eti, anchor=east]  at ([shift={(-1.95,-0.7)}]cella.west) {\texttt{in\_ch[O]}};
     \node[eti, anchor=west]  at ([shift={(1.95,-0.7)}]cella.east)  {\texttt{in\_ch[E]}};
     \end{tikzpicture}
-    \caption[Struttura fisica di una cella]{Struttura di una cella. I quattro
+    \caption[Struttura di una cella]{Struttura di una cella. I quattro
     canali di uscita appartengono alla cella, che ne è l'unica scrittrice; i
     quattro ingressi (tratteggiati) non sono suoi, sono i canali di uscita dei
-    quattro vicini, raggiunti per puntatore. La memoria non è visibile a
-    nessun'altra cella.}
+    quattro vicini, raggiunti per puntatore. La memoria è privata dela cella, ovvero 
+    non è visibile a nessun'altra.}
     \label{fig:cella}
 \end{figure}
 
-\clearpage
 
 \section{Il canale}
 \label{sec:canale}
 
 Il canale è il componente su cui si basa il protocollo di comunicazione, ed è
-deliberatamente povero:
+deliberatamente molto compatto:
 
-\begin{lstlisting}[caption={La struttura del canale},label={lst:channel},language=C,float=htbp]
+\begin{lstlisting}[caption={La struttura del canale e i suoi due test},label={lst:channel},language=C,float=htbp]
 typedef struct Channel {
     uint32_t data;       /* visibile al consumatore */
-    uint8_t  wp, rp;     /* write pointer e read pointer, mod 2 */
+    uint8_t  wp, rp;     /* i due ready bit, mod 2 */
 
     uint32_t data_next;  /* registro di uscita: lo carica OUT */
     uint8_t  wp_next, rp_next;
 } Channel;
+
+/* i test guardano lo stato ATTUALE, mai i gemelli _next */
+static inline int ch_isrdy(const Channel *c) {   /* c'e' una parola da leggere? */
+    return c -> wp != c -> rp;
+}
+static inline int ch_iswrt(const Channel *c) {   /* si puo' pubblicare? */
+    return c -> wp == c -> rp;
+}
+
+/* IN: legge e, se c'era un dato, libera lo slot */
+static inline uint32_t ch_read_c(Channel *c) {
+    uint32_t v = c -> data;
+    if (ch_isrdy(c)) {
+        c -> rp_next = c -> rp ^ 1;
+    }
+    return v;
+}
 \end{lstlisting}
 
-\textbf{Tutto lo stato di protocollo sono due contatori a un bit e i
-comparatori che li confrontano}: sono questi i due \emph{ready bit} del canale,
-uno per lato. Non esiste un campo che dica se è pieno o vuoto: lo stato si
-ricostruisce confrontando i due contatori.
+tutto lo stato necessario a implementare il protocollo è costituito da due 
+contatori a un bit e dal comparatore che li
+confronta. Nel codice si chiamano \texttt{wp} e \texttt{rp}, dal
+\emph{write pointer} e \emph{read pointer} da cui derivano, ma nel seguito
+saranno i due \emph{ready bit} del canale, uno per lato: il produttore commuta
+il proprio per dire che c'è un valore nuovo, il consumatore commuta il proprio
+per dire che l'ha preso. Nessun campo registra l'occupazione del canale, e lo 
+stato si legge confrontando i due contatori invece che il valore dell'uno o dell'altro.
+Ogni campo ha poi un gemello con il suffisso \texttt{\_next}, che l'aggiornamento di fine ciclo usa
+per tenere separato ciò che un ciclo legge da ciò che vi scrive (sezione~\ref{sec:due-fasi}).
+
+I due test del listato registrano proprio quel confronto, e va notato quali
+campi guardano: \texttt{wp} e \texttt{rp}, cioè lo stato \emph{attuale}, mai i
+gemelli \texttt{\_next}. È un dettaglio da cui dipende l'intero protocollo, e
+la sezione~\ref{sec:finestra} ne mostra la ragione. Il confronto fra i due
+campi si riassume così:
 
 \begin{center}
 \begin{tabular}{ll}
     \toprule
-    pieno, quindi leggibile & $\mathtt{wp} \neq \mathtt{rp}$ \\
-    vuoto, quindi scrivibile & $\mathtt{wp} = \mathtt{rp}$ \\
+    il consumatore ha una parola da leggere & $\mathtt{wp} \neq \mathtt{rp}$ \\
+    il produttore può pubblicare & $\mathtt{wp} = \mathtt{rp}$ \\
     \bottomrule
 \end{tabular}
 \end{center}
 
 La scelta è fra due famiglie di protocolli di sincronizzazione: uno
-\textbf{a livelli}, in cui lo stato del canale è il valore assoluto di un
-segnale condiviso, e uno \textbf{a transizione}, in cui è la commutazione
+\emph{a livelli}, in cui lo stato del canale è il valore assoluto di un
+segnale condiviso, e uno \emph{a transizione}, in cui è la commutazione
 di un segnale, non il suo valore, a portare l'informazione~\cite{Sutherland1989}.
 Il canale di NESO adotta la seconda famiglia.
 
-Un indicatore booleano unico di \emph{pieno} sarebbe insufficiente, perché
-andrebbe scritto da \textbf{due lati diversi}: il produttore lo alzerebbe
-pubblicando, il consumatore lo abbasserebbe leggendo. Le due cose accadono
-nello stesso ciclo ogni volta che il vicino consuma mentre il mittente
-pubblica, e le due scritture finirebbero sullo stesso campo: il risultato
-dipenderebbe dall'ordine in cui il simulatore visita le celle, cioè da un
-dettaglio implementativo che nel circuito reale non esiste.
+Un unico bit di occupazione non basterebbe, perché andrebbe scritto da due lati
+diversi: il produttore lo alzerebbe pubblicando, il consumatore lo abbasserebbe
+leggendo. Le due cose accadono nello stesso ciclo ogni volta che il vicino
+consuma mentre il mittente pubblica, e le due scritture finirebbero sullo stesso
+campo. Nel simulatore l'esito dipenderebbe dall'ordine con cui le celle vengono
+visitate; in hardware due sorgenti che pilotano lo stesso flip-flop sul
+medesimo fronte non descrivono un circuito realizzabile.
 
-Con due contatori \textbf{ogni lato scrive soltanto il proprio campo}: il
-produttore tocca solo \texttt{wp}, il consumatore solo \texttt{rp}. Non c'è
-contesa e non c'è dipendenza dall'ordine di scansione, perché nessuno dei due
-scrive una variabile comune: è il confronto a ricostruire lo stato. I contatori sono \emph{modulo due} perché la profondità del canale è uno:
-bastano due stati per distinguere pieno da vuoto, quindi un solo bit, che per
-costruzione non può traboccare.
+Con due contatori ogni lato scrive soltanto il proprio campo: il produttore
+tocca solo \texttt{wp}, il consumatore solo \texttt{rp}. Non c'è contesa e non
+c'è dipendenza dall'ordine di scansione, perché nessuno dei due scrive una
+variabile comune. I contatori sono \emph{modulo due} perché il canale ha una
+sola posizione: bastano due stati, quindi un solo bit, che per costruzione non
+può traboccare.
 
-Il canale è \textbf{fisicamente condiviso}: il canale di uscita verso est del
-mittente \emph{è} lo stesso oggetto del canale di ingresso da ovest del
-ricevente. Il cablaggio della griglia non copia niente, assegna puntatori. Non
-esiste un livello di rete, non esiste una tabella di instradamento: i due lati
-di un canale sono la stessa struttura vista da due celle.
+Ogni canale è condiviso dalle due celle che collega: il canale di uscita verso
+est del mittente \emph{è} il canale di ingresso da ovest del ricevente. Non
+esiste un livello di rete e non esiste una tabella di instradamento. Nel
+simulatore il cablaggio della griglia realizza questa condivisione assegnando
+puntatori, senza copiare nulla.
+
 
 \section{Il bordo}
 \label{sec:bordo}
 
-Le celle del perimetro hanno direzioni che puntano fuori dalla griglia. Il simulatore 
-della griglia alloca allora $2(R+C)$ canali propri e li collega a quelle direzioni,
-così che ogni cella abbia sempre quattro ingressi e quattro uscite validi.
-Da quel momento il programma ospite (il codice C che fa girare la
-simulazione) può fare esattamente ciò che farebbe un vicino: caricare un
-valore e pubblicarlo, oppure verificare che ci sia un dato e consumarlo.
+Le celle del perimetro hanno direzioni che puntano fuori dalla griglia. Il
+simulatore alloca allora $2(R+C)$ canali di bordo e li collega a quelle
+direzioni, così che ogni cella abbia sempre quattro ingressi e quattro uscite
+validi. Da quel momento l'host può fare ciò che farebbe un vicino, con lo stesso
+protocollo della comunicazione interna: caricare un valore e pubblicarlo, oppure
+verificare che ci sia un dato e consumarlo.
 
-L'ospite \textbf{non ha scorciatoie}: non scrive il dato direttamente, non
-salta l'aggiornamento di fine ciclo, non ignora lo stato di pieno o vuoto. Se
-la cella non ha ancora consumato il valore precedente, la spinta dell'ospite
-viene rifiutata esattamente come sarebbe rifiutata a una cella vicina. È un
-rifiuto che viene contato e riportato fra i risultati.
-
-La conseguenza è che \textbf{nessuna cella sa di stare sul bordo}. Il programma
+La conseguenza è che nessuna cella ha la percezione di stare sul bordo. Il programma
 che gira nell'angolo è lo stesso che gira al centro, legge i quattro ingressi
-allo stesso modo e pubblica sulle quattro uscite allo stesso modo. È
-l'astrazione che rende possibile il programma completamente uniforme discusso
+allo stesso modo e pubblica sulle quattro uscite allo stesso modo. Questa
+astrazione rende possibile il programma completamente uniforme discusso
 nella sezione~\ref{sec:kernel-jacobi}.
 
-\clearpage
 
 \section{Parallelizzazione}
 \label{sec:parallelizzazione}
@@ -267,36 +315,38 @@ Il progetto è parallelo su due piani distinti, che rispondono a domande diverse
 
 \subsection{Il calcolo distribuito sulle celle}
 
-Il primo piano è quello simulato: le $R \times C$ celle calcolano insieme. La
-forma che il parallelismo assume qui è quella sistolica, in cui il dato si
-muove e il calcolo sta fermo: ogni cella accumula un risultato che non lascia
-mai la cella, e a scorrere sono gli operandi che la attraversano. Il programma
+Il primo piano è quello dell'array: a ogni ciclo ogni cella attiva calcola il
+proprio nuovo stato a partire dallo stato in cui l'array si trova all'inizio del
+ciclo, che è lo stesso per tutte.
+La forma che il parallelismo assume qui è quella sistolica: i dati si
+muovono e il calcolo sta fermo. Ogni cella può accumulare un risultato che non lascia
+mai la stessa, e a scorrere sono gli operandi che la attraversano. Il programma
 di moltiplicazione di matrici, descritto nella sezione~\ref{sec:kernel}, ne è
 il caso canonico.
 
-Poiché tutte le celle eseguono la stessa immagine, la suddivisione del lavoro
-non è espressa da un programma di coordinamento ma dalla \textbf{posizione}:
+Poiché tutte le celle eseguono la stesso programma, la suddivisione
+del lavoro non è espressa da un programma di coordinamento ma dalla posizione:
 ogni cella nasce sapendo dove si trova e sceglie il proprio ruolo da lì
-(sezione~\ref{sec:registri}). Il perimetro dell'array ha $O(R+C)$ canali contro gli $O(R \cdot C)$ della
-griglia, ed è la parte che l'ospite deve alimentare dall'esterno: è la
-ragione per cui l'array conviene tanto più quanto è grande, e la misura si
-trova nella sezione~\ref{sec:scalabilita}. 
+(sezione~\ref{sec:registri}). Il perimetro ha $O(R+C)$ canali contro gli
+$O(R \cdot C)$ della griglia, e i dati dall'esterno entrano ed escono solo di
+lì: al crescere della griglia la quota di comunicazione a carico dell'host
+diminuisce, e la sezione~\ref{sec:scalabilita} la misura.
 
-Nell'implementazione attuale quell'alimentazione costa $O(R+C)$ anche in tempo, perché
-\texttt{grid\_border\_fill} e \texttt{grid\_border\_drain}
-(sezione~\ref{sec:io-bordo}) sono cicli seriali sull'host: non è un limite
-del modello, dato che ogni canale di bordo è una struttura indipendente e
-vale lo stesso argomento dell'unico scrittore per campo; è un costo del
-simulatore che una versione parallela dell'alimentazione del bordo
-eliminerebbe.
+Nell'implementazione attuale quell'ingresso e quell'uscita costano $O(R+C)$
+anche in tempo, perché \texttt{grid\_border\_fill} e \texttt{grid\_border\_drain}
+(sezione~\ref{sec:io-bordo}) sono cicli seriali sull'host: non è un limite del
+modello, dato che ogni canale di bordo è indipendente dagli altri e vale lo
+stesso argomento dell'unico scrittore per campo; è un costo del simulatore che
+una versione parallela di quei due cicli eliminerebbe.
 
-\subsection{Il simulatore}
+\subsection{La simulazione di un ciclo di clock}
 
-Il secondo piano è quello reale: il programma che simula l'array può usare più
-processori della macchina su cui gira. Il codice non ha avuto bisogno di
-alcun \emph{lock}, per una ragione strutturale: il ciclo di clock separa una
-fase di calcolo da una fase di aggiornamento (sezione~\ref{sec:due-fasi}), e
-in fase di calcolo \textbf{ogni campo ha un solo scrittore}:
+Il secondo piano è quello del simulatore, che per far avanzare l'array di un
+ciclo di clock può usare più processori della macchina su cui gira. Il codice
+non ha avuto bisogno di alcun \emph{lock}, per una ragione strutturale: il ciclo
+di clock separa una fase di calcolo da una fase di aggiornamento
+(sezione~\ref{sec:due-fasi}), e in fase di calcolo ogni campo ha un solo
+scrittore:
 
 \begin{center}
 \begin{tabular}{ll}
@@ -310,9 +360,10 @@ in fase di calcolo \textbf{ogni campo ha un solo scrittore}:
 \end{tabular}
 \end{center}
 
-Ciascuna delle due fasi è quindi un ciclo \emph{embarrassingly parallel}: le
-iterazioni sono indipendenti e non richiedono sincronizzazione al proprio
-interno. L'unica sincronizzazione necessaria è la barriera fra le due fasi,
+Ciascuna delle due fasi è quindi un ciclo banalmente parallelo (per usare la
+traduzione consueta di \emph{embarrassingly parallel}): le iterazioni sono
+indipendenti e non richiedono sincronizzazione al proprio interno. 
+L'unica sincronizzazione necessaria è la barriera fra le due fasi,
 discussa nella sezione~\ref{sec:omp-impl}.
 
 Un caso che potrebbe sembrare una corsa critica in realtà non lo è: una cella
@@ -329,7 +380,6 @@ corsa critica non altera il risultato, lo rallenta soltanto~\cite{Torrellas}.},
 che riguarda le prestazioni e non la correttezza, e di cui si parla nella
 sezione~\ref{sec:prestazioni}.
 
-La separazione in due fasi non è stata introdotta per parallelizzare, ma per
-garantire la riproducibilità del risultato: il fatto che risponda anche alle
-esigenze del parallelismo è una conseguenza della struttura del ciclo di
-clock.
+La separazione in due fasi serve alla riproducibilità del risultato. Che renda
+superfluo ogni lock nella simulazione di un singolo ciclo di clock è una
+conseguenza dell'unico scrittore per campo.

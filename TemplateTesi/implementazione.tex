@@ -2,71 +2,137 @@
 \chapter{Implementazione}
 \label{ch:implementazione}
 
+Il capitolo parte dal progetto logico del capitolo~\ref{ch:progetto} proseguendo fino al codice
+che lo realizza in tre passi. Le sezioni~\ref{sec:istruzioni}
+e~\ref{sec:due-fasi} descrivono le quattro istruzioni di comunicazione che agiscono nei
+canali di comunicazione e il funzionamento del ciclo di clock che ne rende sistolico il 
+comportamento. Le sezioni~\ref{sec:protocollo}, \ref{sec:registri}, \ref{sec:ecall}
+e~\ref{sec:io-bordo} descrivono nel dettaglio il protocollo del canale e la
+garanzia che ogni valore pubblicato sia letto esattamente una volta, lo stato e
+la terminazione di una cella, e il modo in cui l'host opera sui canali di bordo
+con le stesse operazioni implementate per comunicare con una cella vicina.
+Le sezioni~\ref{sec:rtl} e~\ref{sec:omp-impl} affiancano al simulatore in C due
+descrizioni alternative dello stesso progetto, una in SystemVerilog e una
+parallela, e servono a misurare che cosa del codice appartenga al modello e che
+cosa alla sua simulazione.
+
 \section{Le quattro istruzioni di comunicazione}
 \label{sec:istruzioni}
 
 L'estensione aggiunge quattro istruzioni, tutte con l'opcode \emph{custom-0}
-descritto nella sezione~\ref{sec:custom0} e distinte dal campo \texttt{funct3}:
+(\texttt{0x0B}) e con il formato I-type già visto nella
+sezione~\ref{sec:custom0}:
 
 \begin{center}
-\begin{tabular}{llll}
+\begin{tabular}{ccccc}
     \toprule
-    istruzione & \texttt{funct3} & punta & restituisce \\
+    \texttt{imm[11:0]} & \texttt{rs1} & \texttt{funct3} & \texttt{rd} & \texttt{opcode} \\
+    31\dots20 & 19\dots15 & 14\dots12 & 11\dots7 & 6\dots0 \\
     \midrule
-    \texttt{IN rd, dir}     & 0 & il canale del vicino & la parola letta \\
-    \texttt{OUT rs, dir}    & 1 & il canale proprio & niente \\
-    \texttt{ISRDY rd, dir}  & 2 & il canale del vicino & 1 se c'è un dato da leggere \\
-    \texttt{SETRDY rd, dir} & 3 & il canale proprio & 1 se ha pubblicato \\
+    direzione & sorgente & operazione & destinazione & \texttt{0x0B} \\
     \bottomrule
 \end{tabular}
 \end{center}
 
-Le due istruzioni di test sono \textbf{non bloccanti}: non sospendono la cella,
-ma restituiscono un esito in un registro, e spetta al programma decidere cosa
-farne, di norma ripetendo il tentativo. La scelta è motivata dall'hardware. Un
-test bloccante è una primitiva di sincronizzazione, e in un circuito richiede
-uno stallo della pipeline oppure uno scheduler; un test non bloccante è un filo
-letto come un bit, il cui costo implementativo è nullo e il cui costo in cicli
-è pagato esplicitamente dal programma, dove resta visibile e misurabile.
+Le quattro istruzioni si distinguono per il campo \texttt{funct3}, e la direzione sta
+sempre nei due bit bassi dell'immediato:
 
-\texttt{IN} consuma leggendo: preleva il dato e, se il canale era pieno, libera
-lo slot. La lettura di un canale vuoto restituisce il valore precedente e non
-altera lo stato; non costituisce un errore, ma presuppone che il programma
+\begin{center}
+\begin{tabular}{llccll}
+    \toprule
+    istruzione & \texttt{funct3} & \texttt{rs1} & \texttt{rd} & agisce su & restituisce \\
+    \midrule
+    \texttt{IN rd, dir}     & 0 & \texttt{x0} & \texttt{rd} & il canale del vicino & la parola letta \\
+    \texttt{OUT rs, dir}    & 1 & \texttt{rs} & \texttt{x0} & il proprio canale    & niente \\
+    \texttt{ISRDY rd, dir}  & 2 & \texttt{x0} & \texttt{rd} & il canale del vicino & 1 se c'è un dato \\
+    \texttt{SETRDY rd, dir} & 3 & \texttt{x0} & \texttt{rd} & il proprio canale    & 1 se ha pubblicato \\
+    \bottomrule
+\end{tabular}
+\end{center}
+
+Le due istruzioni di test sono \emph{non bloccanti}: non sospendono la cella,
+ma restituiscono un esito in un registro, e spetta al programma decidere cosa
+farne, di norma ripetendo il tentativo. La scelta è motivata dall'hardware: un
+test bloccante è una primitiva di sincronizzazione, e in un circuito richiede
+uno stallo della pipeline oppure uno scheduler. Un test non bloccante legge
+l'uscita di un comparatore e non aggiunge stato al canale, e il suo costo in
+cicli è pagato esplicitamente dal programma, dove resta visibile e misurabile.
+
+\texttt{IN} consuma leggendo: preleva il dato e, se il canale aveva una parola da leggere,
+ne libera la posizione. La lettura di un canale che non ne ha restituisce il
+valore precedente e non altera lo stato. Non costituisce un errore, ma presuppone che il programma
 abbia verificato la disponibilità del dato con \texttt{ISRDY}.
 
 \section{Il ciclo di clock a due fasi}
 \label{sec:due-fasi}
 
 Ogni campo del canale ha il suo gemello \texttt{\_next}, e vale una regola
-unica: \textbf{le letture guardano sempre lo stato attuale, le scritture vanno
-sempre nel gemello}. Il ciclo di clock è quindi diviso in due fasi:
+unica: le letture guardano sempre lo stato attuale, le scritture vanno sempre
+nel gemello. Al termine del ciclo di clock \texttt{wp\_next} e \texttt{rp\_next}
+diventano sincronamente \texttt{wp} e \texttt{rp}, mentre \texttt{data\_next}
+passa in \texttt{data} solo a una condizione, che il codice~\ref{lst:commit}
+rende esplicita. Il ciclo di clock è quindi diviso in due fasi:
 
-\begin{lstlisting}[caption={Il ciclo di clock globale},label={lst:gridstep},language=C,float=htbp]
+\clearpage
+
+\begin{lstlisting}[caption={Il ciclo di clock globale, che il simulatore esegue a ogni passo},label={lst:gridstep},language=C]
 void grid_step(Grid *grid) {
     /* FASE COMPUTE: legge lo stato attuale,
        scrive solo nei campi _next */
-    for (ogni cella)  execute_step(...);
+    for (ogni cella)
+        if (cella -> running) execute_step(...);
 
-    /* FASE COMMIT: i campi _next diventano attuali */
+    /* FASE COMMIT: i campi _next diventano attuali.
+       running non viene consultato. */
     for (ogni cella)
         for (i suoi 4 canali di uscita) ch_commit(...);
+
+    for (i canali di bordo) ch_commit(...);
 }
 \end{lstlisting}
 
-Senza la separazione, il comportamento dipenderebbe dall'ordine di visita
+Senza la separazione, il comportamento del simulatore dipenderebbe dall'ordine di visita
 dell'array: una cella già eseguita vedrebbe il valore \emph{nuovo} del vicino,
 una non ancora eseguita quello \emph{vecchio}, e lo stesso programma darebbe
 risultati diversi al variare dell'ordine dei due cicli annidati. Con
-l'aggiornamento separato la semantica è quella di un circuito sincrono reale:
+l'aggiornamento separato la semantica è quella di un circuito sincrono:
 tutte le celle leggono lo stato al fronte $k$ e scrivono lo stato al fronte
 $k+1$.
 
-La conseguenza è misurabile ed è ciò che rende il modello sistolico~\cite{KungLeiserson}:
-\textbf{ogni salto verso un vicino costa esattamente un ciclo}. Nell'aggiornamento
-di fine ciclo, riportato nel codice~\ref{lst:commit}, i due contatori passano
-sempre, mentre il dato passa solo sulla transizione di \texttt{wp}.
+L'attraversamento di un canale costa un ciclo: questa latenza fissa rende
+sistolico il modello. Un valore reso disponibile al fronte $k$ è visibile al vicino al
+fronte $k+1$, mai prima, perché a renderlo visibile è l'aggiornamento di fine ciclo e non
+l'istruzione che lo ha prodotto: la \texttt{SETRDY} scrive \texttt{wp\_next}, e
+il consumatore legge \texttt{wp}.
 
-\begin{lstlisting}[caption={L'aggiornamento di fine ciclo},label={lst:commit},language=C,float=htbp]
+L'attraversamento è però il limite inferiore che il modello impone, non il
+costo che un programma paga, e i due vanno tenuti distinti perché a
+moltiplicarsi per la distanza fra due celle è il secondo. Una comunicazione
+completa richiede quattro istruzioni distribuite fra i due lati, ciascuna dentro
+il proprio ciclo di ritentativo:
+
+\begin{lstlisting}[caption={Le quattro istruzioni di una comunicazione nel programma della cella},label={lst:duelati},language=RISCV]
+# lato produttore                 # lato consumatore
+1:  OUT     s1, EST           2:  ISRDY   t0, OVEST
+    SETRDY  t0, EST               beqz    t0, 2b
+    beqz    t0, 1b                IN      t1, OVEST
+\end{lstlisting}
+
+Il ciclo di ritentativo del produttore comprende anche la \texttt{OUT}, che a
+ogni giro ricarica lo stesso valore senza effetto. È la forma canonica, che i
+programmi del capitolo~\ref{ch:risultati} ripetono per ogni direzione, e la
+sezione~\ref{sec:ciclo-completo} la segue ciclo per ciclo: fra la \texttt{OUT}
+del produttore e la \texttt{IN} del consumatore passano tre cicli anche nel
+caso migliore. In un programma reale il costo di far avanzare un dato da una
+cella alla successiva, che nel seguito è il \emph{passo di propagazione}, è
+maggiore ancora, perché comprende le istruzioni che la cella esegue prima di
+inoltrare: la sezione~\ref{sec:scalabilita} lo misura in dieci cicli per il
+prodotto di matrici. L'attraversamento è il termine irriducibile che compare
+dentro quei dieci.
+
+L'aggiornamento di fine ciclo è riportato nel codice~\ref{lst:commit}.
+
+\begin{lstlisting}[caption={L'aggiornamento con cui il simulatore chiude ogni ciclo di clock},label={lst:commit},language=C]
 static inline void ch_commit(Channel *c) {
     /* il confronto E' il segnale di pubblicazione */
     if (c->wp_next != c->wp) {
@@ -77,11 +143,41 @@ static inline void ch_commit(Channel *c) {
 }
 \end{lstlisting}
 
-I due registri del dato non sono due buffer generici, ma \textbf{due registri
-in serie}: il registro di uscita del mittente è \texttt{data\_next}, quello
-letto dal vicino è \texttt{data}, e l'abilitazione del secondo è il fronte di
-\texttt{wp}. In assenza di quella condizione, una \texttt{OUT} a canale pieno
-cancellerebbe un valore già pubblicato e non ancora letto.
+I due registri del dato sono in serie: il primo è \texttt{data\_next}, che
+carica la \texttt{OUT} e che il vicino non vede; il secondo è \texttt{data},
+l'unico che il consumatore legge.
+
+Gli altri due gemelli hanno la stessa ragione. \texttt{wp} lo scrive il
+produttore con \texttt{SETRDY} e lo legge il consumatore con \texttt{ISRDY}:
+senza \texttt{wp\_next} la pubblicazione sarebbe visibile al vicino nello stesso
+ciclo in cui avviene, e l'attraversamento non costerebbe più un ciclo.
+\texttt{rp} lo scrive il consumatore con \texttt{IN}, ma lo legge il produttore,
+perché \texttt{ch\_setrdy} verifica $\mathtt{wp} = \mathtt{rp}$: anche il
+rilascio attraversa il canale, nel verso opposto al dato, e costa un ciclo pure
+lui.
+
+Le righe 3--7 del codice~\ref{lst:commit} si dividono perciò in due gruppi. Le
+righe 6--7 sono incondizionate: i due contatori passano sempre, e ogni
+commutazione decisa in fase di calcolo diventa effettiva al fronte. Le righe
+3--4 sono invece sotto condizione, e il dato passa da \texttt{data\_next} a
+\texttt{data} solo se \texttt{wp\_next} differisce da \texttt{wp}, cioè solo se
+in questo ciclo una \texttt{SETRDY} è andata a buon fine
+(sezione~\ref{sec:protocollo}).
+
+Il confronto della riga 3 è dunque il segnale di abilitazione del secondo
+registro. \texttt{data\_next} è un flip-flop sempre abilitato, \texttt{data} un
+flip-flop il cui \emph{enable} è la transizione di \texttt{wp}, e il valore
+visibile al consumatore cambia solo insieme al \emph{ready bit} del produttore.
+
+Se la riga 4 stesse fuori dal blocco condizionale, i due registri diventerebbero
+un semplice ritardo di un ciclo e ogni \texttt{OUT} raggiungerebbe il vicino.
+Una \texttt{OUT} eseguita mentre una parola pubblicata attende di essere letta
+la sovrascriverebbe, e il consumatore leggerebbe la seconda al posto della prima
+senza che alcun contatore registri la perdita. La condizione della riga 3
+garantisce invece che \texttt{data} resti immutato finché la parola pubblicata
+non è stata letta, e la sezione~\ref{sec:finestra} mostra la situazione concreta
+in cui il vincolo si rende necessario. \looseness=-1
+
 
 \section{Il protocollo}
 \label{sec:protocollo}
@@ -89,7 +185,7 @@ cancellerebbe un valore già pubblicato e non ancora letto.
 La coppia \texttt{OUT} e \texttt{SETRDY} è asimmetrica, e l'asimmetria è
 deliberata:
 
-\begin{lstlisting}[caption={Le due metà della pubblicazione},label={lst:outsetrdy},language=C,float=htbp]
+\begin{lstlisting}[caption={Le due metà della pubblicazione nel simulatore},label={lst:outsetrdy},language=C]
 /* OUT: carica il registro di uscita. Non fallisce mai. */
 static inline void ch_write(Channel *c, uint32_t v) {
     /* congelato se la pubblicazione di questo ciclo
@@ -110,83 +206,114 @@ static inline int ch_setrdy(Channel *c) {
 }
 \end{lstlisting}
 
-\textbf{\texttt{OUT} non è un invio}, ma il caricamento di un registro di
+
+\texttt{OUT} non è un invio, ma il caricamento di un registro di
 uscita. Il canale fornisce una garanzia solo a partire da \texttt{SETRDY}, che è
 l'istruzione con cui il produttore commuta il proprio \emph{ready bit}, e la
-garanzia è che \emph{ogni valore pubblicato viene consegnato esattamente una
-volta}. Due \texttt{OUT} consecutive senza una \texttt{SETRDY} interposta sono
+garanzia è che ogni valore pubblicato viene letto esattamente una
+volta. Due \texttt{OUT} consecutive senza una \texttt{SETRDY} interposta sono
 due caricamenti dello stesso registro, non due messaggi: il primo valore viene
 sovrascritto senza conseguenze, poiché non era ancora stato promesso ad alcun
 consumatore. È la stessa distinzione che in un \emph{handshake}
 hardware separa il registro di uscita dal segnale di \emph{valid}.
 
+L'asimmetria fra le due istruzioni si legge nelle righe 12--16 del
+codice~\ref{lst:outsetrdy}, che sono il percorso di una \texttt{SETRDY}
+accettata. La
+guardia della riga 13 è doppia, e i due termini rifiutano per due ragioni
+diverse: \texttt{ch\_iswrt} chiede che il consumatore abbia letto il valore
+precedente, mentre $\mathtt{wp\_next} = \mathtt{wp}$ chiede che in questo stesso
+ciclo non sia già passata un'altra \texttt{SETRDY}. La riga 14 commuta il
+\emph{ready bit}, ed è l'unico punto dell'intero canale in cui \texttt{wp\_next}
+viene scritto: per questo il confronto del codice~\ref{lst:commit} fa da
+segnale di pubblicazione invece di essere un controllo ridondante. Il
+valore restituito alla riga 15 è lo stesso segnale che pilota
+quell'abilitazione, il che rende \texttt{SETRDY} un \emph{test-and-set}, come la
+sezione~\ref{sec:rtl} mostra sul modello hardware. Il rifiuto della riga 17 è
+l'unico esito negativo che il protocollo preveda dal lato del produttore.
+
 \subsection{La finestra fra \texttt{OUT} e \texttt{SETRDY}}
+\label{sec:finestra}
 
 \texttt{OUT} e \texttt{SETRDY} sono due istruzioni in due cicli distinti, poiché
 una cella esegue una istruzione per ciclo. Nell'intervallo il consumatore può
 leggere, e da questa possibilità nasce l'unico caso delicato del protocollo:
 
 \begin{center}
-\begin{tabular}{ll}
+\begin{tabular}{lll}
     \toprule
-    $t$ & \texttt{OUT s1, EST} $\rightarrow$ il canale è pieno \\
-        & il consumatore legge, quindi al ciclo successivo è vuoto \\
-    $t+1$ & \texttt{SETRDY t0, EST} $\rightarrow$ ora riesce, ma pubblica \emph{quale} valore? \\
+    ciclo & il produttore esegue & stato del canale \\
+    \midrule
+    $t$   & \texttt{OUT s1, EST} & una parola attende già da prima; \\
+          &                      & il consumatore la legge, e dal \\
+          &                      & ciclo dopo si può pubblicare \\
+    $t+1$ & \texttt{SETRDY t0, EST} & riesce, ma pubblica \emph{quale} valore? \\
     \bottomrule
 \end{tabular}
 \end{center}
 
 Se il registro di uscita non fosse stato caricato al ciclo $t$, la
-\texttt{SETRDY} consegnerebbe il valore vecchio, già consegnato una volta:
-un duplicato, e il valore nuovo non partirebbe mai. Si tratterebbe di un errore
-silenzioso.
+\texttt{SETRDY} pubblicherebbe il valore vecchio, già letto una volta: un
+duplicato, mentre il valore nuovo non partirebbe mai.
 
-La soluzione risiede in una \textbf{asimmetria deliberata}: la \texttt{OUT} non
-è mai rifiutata. Carica sempre \texttt{data\_next}, anche a canale pieno, ed è
-un'operazione innocua perché il consumatore osserva \texttt{data}. Al ciclo $t$
+È il caso che l'asimmetria fra le due istruzioni esclude. La \texttt{OUT} carica
+sempre il registro di uscita, anche mentre una parola attende di essere letta,
+ed è innocua perché il consumatore osserva \texttt{data}. Al ciclo $t$
 il valore nuovo è quindi già nel registro, e la \texttt{SETRDY} di $t+1$
-consegna esattamente quel valore, senza che il canale debba registrare il
+pubblica esattamente quel valore, senza che il canale debba registrare il
 passaggio di una \texttt{OUT}.
 
-\paragraph*{Invariante.} \texttt{data} cambia \textbf{solo} quando \texttt{wp}
-commuta.
+L'affermazione vale per una cella, e la guardia della riga 5 del
+codice~\ref{lst:outsetrdy} la delimita. Una cella esegue una istruzione per
+ciclo, quindi non può eseguire una \texttt{OUT} e la \texttt{SETRDY} che la
+pubblica nello stesso ciclo simulato, e al commit $\mathtt{wp\_next} =
+\mathtt{wp}$ torna sempre vero: quella guardia, per una cella, è sempre aperta.
+L'altro produttore possibile è l'host, che in \texttt{grid\_push}
+(sezione~\ref{sec:io-bordo}) esegue caricamento e pubblicazione in successione
+dentro lo stesso ciclo simulato. Il canale accetta al più una pubblicazione per
+ciclo, e la riga 5 impone il vincolo all'unico che potrebbe violarlo.
 
-\paragraph*{Dimostrazione.} \texttt{data} è scritto in un solo punto, sotto la
-condizione $\mathtt{wp\_next} \neq \mathtt{wp}$ dell'aggiornamento di fine
-ciclo. Un valore pubblicato resta quindi intatto finché non viene pubblicato il
-successivo, e la pubblicazione richiede $\mathtt{wp} = \mathtt{rp}$, ovvero che
-il consumatore abbia letto. Nessuna \texttt{OUT}, per quante ne esegua il
-produttore, può raggiungere \texttt{data} senza passare da una \texttt{SETRDY}
-riuscita. $\square$
-
-Ne segue che una \texttt{OUT} non può mai fallire e che un valore caricato non
-va mai perso: al più viene sovrascritto da una \texttt{OUT} successiva prima di
-essere pubblicato, che è precisamente la semantica voluta.
+Il caricamento è quindi sempre sicuro, e nessun valore va perduto: al più uno
+viene sovrascritto da una \texttt{OUT} successiva prima di essere pubblicato,
+che è precisamente la semantica voluta. Simmetricamente, un valore già
+pubblicato resta intatto finché il consumatore non lo legge, perché la
+pubblicazione successiva richiede $\mathtt{wp} = \mathtt{rp}$ e quel confronto
+è vero solo dopo la lettura. Ogni valore pubblicato viene dunque letto
+esattamente una volta, e nell'ordine in cui è stato pubblicato.
 
 \subsection{Il ciclo completo}
+\label{sec:ciclo-completo}
 
-Si consideri un produttore in $(0,0)$ che invia 42 e poi 43 a est, con il
-consumatore in $(0,1)$:
+L'esempio che segue serve a due cose: mostrare il protocollo in funzione su due
+valori consecutivi, e contare i cicli che separano il caricamento di un valore
+dalla sua lettura. Si consideri un produttore in $(0,0)$ che invia 42 e poi 43
+a est, con il consumatore in $(0,1)$:
 
 \begin{center}
-\begin{tabular}{clll}
+\begin{tabular}{cllcccc}
     \toprule
-    ciclo & produttore & consumatore & stato a fine ciclo \\
+    ciclo & produttore & consumatore & \texttt{data\_next} & \texttt{data} & \texttt{wp} & \texttt{rp} \\
     \midrule
-    0 & \texttt{OUT s1, EST(42)} & \texttt{ISRDY t0, OVEST} $\rightarrow$ 0 & vuoto, \texttt{data} intatto \\
-    1 & \texttt{SETRDY t0, EST} $\rightarrow$ 1 & \texttt{ISRDY t0, OVEST} $\rightarrow$ 0 & \textbf{pieno}, \texttt{data} cattura 42 \\
-    2 & (istruzione successiva) & \texttt{ISRDY t0, OVEST} $\rightarrow$ 1 & pieno \\
-    3 & \texttt{OUT s1, EST} (43) & \texttt{IN t1, OVEST} $\rightarrow$ 42 & \textbf{vuoto}, \texttt{data} resta 42 \\
-    4 & \texttt{SETRDY t0, EST} $\rightarrow$ 1 & \dots & pieno, \texttt{data} cattura 43 \\
+    0 & \texttt{OUT} (42)  & \texttt{ISRDY} $\rightarrow$ 0  & 42 & --- & 0 & 0 \\
+    1 & \texttt{SETRDY} $\rightarrow$ 1 & \texttt{ISRDY} $\rightarrow$ 0 & 42 & 42 & 1 & 0 \\
+    2 & (altra istruzione) & \texttt{ISRDY} $\rightarrow$ 1 & 42 & 42 & 1 & 0 \\
+    3 & \texttt{OUT} (43)  & \texttt{IN} $\rightarrow$ 42 & 43 & 42 & 1 & 1 \\
+    4 & \texttt{SETRDY} $\rightarrow$ 1 & \dots & 43 & 43 & 0 & 1 \\
     \bottomrule
 \end{tabular}
 \end{center}
 
-Le righe rilevanti sono la 3 e la 4. Al ciclo 3 il produttore carica il valore
-successivo \emph{mentre} il consumatore sta leggendo il precedente: la
-\texttt{OUT} va a segno ugualmente ed è innocua, poiché tocca solo il registro
-di uscita. Al ciclo 4 il canale si è svuotato e la \texttt{SETRDY} consegna 43,
-il valore corretto, una sola volta e senza un giro di ritentativo.
+Le quattro colonne di destra sono i campi del canale a fine ciclo, cioè dopo
+l'aggiornamento del codice~\ref{lst:commit}. Le tre \texttt{ISRDY} dei cicli
+0--2 sono tre giri del ciclo di attesa del codice~\ref{lst:duelati}: il
+consumatore ritenta finché il confronto non diventa vero.
+
+Le righe rilevanti sono la 3 e la 4. Al ciclo 3 il produttore carica 43
+\emph{mentre} il consumatore legge 42: la \texttt{OUT} va a segno ugualmente e
+\texttt{data\_next} diventa 43, ma \texttt{data} resta 42 perché \texttt{wp} non
+commuta, e il valore in lettura non viene distrutto. Al ciclo 4 la
+\texttt{SETRDY} pubblica 43, e i due contatori si sono avvolti: la parola
+disponibile è ora segnalata da $\mathtt{wp} = 0$ e $\mathtt{rp} = 1$.
 
 \section{Stato dei registri}
 \label{sec:registri}
@@ -197,7 +324,7 @@ griglia, quattro registri argomento sono precaricati:
 \begin{center}
 \begin{tabular}{lll}
     \toprule
-    registro & contenuto & \\
+    registro & contenuto & simbolo \\
     \midrule
     \texttt{a0} & riga della cella & $r$ \\
     \texttt{a1} & colonna della cella & $c$ \\
@@ -209,31 +336,78 @@ griglia, quattro registri argomento sono precaricati:
 
 L'identità è precaricata anziché ricavata da un identificatore lineare per una
 ragione precisa: il passaggio da $\mathit{id}$ a $(r,c)$ richiede una
-\textbf{divisione}, e RV32I non dispone di istruzioni di divisione. Ogni cella
+divisione, e RV32I non dispone di istruzioni di divisione. Ogni cella
 dovrebbe quindi eseguire all'avvio una routine software di decine di istruzioni
-al solo scopo di determinare la propria posizione. Nel circuito reale la
+al solo scopo di determinare la propria posizione. Nel circuito la
 posizione è cablata, dunque precaricarla è anche il modello più fedele.
 
-È questo che abilita l'idea centrale dei programmi: \textbf{una sola immagine,
-caricata identica in tutte le celle, che sceglie il proprio ruolo dalla
-posizione}.
+Precaricare l'identità rende possibile l'idea centrale dei programmi: un solo
+programma, caricato identico in tutte le celle, che sceglie il proprio ruolo
+dalla posizione.
 
 Il resto della convenzione sui registri è locale ai programmi e segue l'uso
-tipico dell'architettura: i registri temporanei \texttt{t0}--\texttt{t2}
-raccolgono gli esiti dei test, i registri salvati \texttt{s1}--\texttt{s2}
-tengono l'accumulatore e il contatore del ciclo principale. Nei due programmi
-usati per la taratura delle misure, \texttt{s3} e \texttt{s4} contano in
-assembly le pubblicazioni rifiutate e le attese a vuoto, e servono a verificare
-i contatori del simulatore (sezione~\ref{sec:taratura}). Una cella termina
-eseguendo \texttt{ecall}, che la ferma senza fermare le altre.
+tipico dell'architettura: i registri temporanei \texttt{t0}--\texttt{t3}
+raccolgono gli esiti dei test e i valori appena letti da un canale, mentre i
+registri salvati \texttt{s1}--\texttt{s2} tengono l'accumulatore e il contatore
+del ciclo principale. In
+\texttt{prodcons} e in \texttt{chain}, \texttt{s3} e \texttt{s4} contano in
+assembly le pubblicazioni rifiutate e le attese a vuoto, e servono a validare i
+contatori del simulatore (sezione~\ref{sec:taratura}).
+
+\section{La terminazione di una cella}
+\label{sec:ecall}
+
+Una cella termina eseguendo \texttt{ecall}. È l'istruzione con cui, in RISC-V,
+un programma richiede un servizio all'ambiente di esecuzione: su un sistema
+reale solleva una eccezione e passa il controllo al livello privilegiato. Qui
+non esiste alcun livello privilegiato e l'ambiente di esecuzione è il
+simulatore, che le assegna l'unico significato necessario, cioè che la cella ha
+terminato.
+
+Il flag \texttt{running} appartiene al simulatore e non al modello. In hardware
+una cella che ha finito continua a ricevere il clock: a fermarla è un ciclo
+infinito nel suo programma, oppure un meccanismo fuori dall'insieme di
+istruzioni base, come l'attesa di una interruzione o l'arresto del clock. Il
+simulatore usa invece un flag perché gli serve sapere quando smettere di far
+avanzare la griglia.
+
+L'effetto è locale e riguarda solo la fase di calcolo. L'interprete azzera il
+flag \texttt{running} della cella, che dal ciclo successivo non esegue più
+istruzioni e viene saltata dal controllo alla riga 5 del
+codice~\ref{lst:gridstep}. Lo stato non viene invece azzerato: i quattro canali
+di uscita restano come sono e continuano a essere aggiornati nella fase di
+commit, che non prende in considerazione \texttt{running} (righe 9--10). Un
+vicino può quindi ancora leggere l'ultimo valore pubblicato prima dell'arresto,
+e l'host può ancora consumarlo dal perimetro. Ciò che la cella non fa più è
+consumare a sua volta: chi pubblica verso di lei trova una parola non letta in
+modo permanente e resta bloccato sulla propria \texttt{SETRDY}, esattamente come
+accade sul perimetro quando l'host non consuma (sezione~\ref{sec:io-bordo}).
+
+Una cella si ferma anche in un secondo caso, che il simulatore tratta allo
+stesso modo: un accesso in memoria oltre lo spazio privato della cella azzera \texttt{running}
+dopo aver segnalato l'errore, invece di scrivere nella memoria della cella
+successiva. È una via di terminazione anomala e non una scelta del programma,
+ma per il ciclo di clock è indistinguibile dalla prima. È proprio questa
+indistinguibilità a rendere verificabile la guardia sulla memoria nella
+sezione~\ref{sec:kernel}.
+
+Le altre celle proseguono. Il clock globale continua finché almeno una cella è
+viva, e la simulazione termina quando tutte si sono fermate, di norma perché
+hanno eseguito la propria \texttt{ecall}: questo definisce la grandezza
+\emph{cicli} della sezione~\ref{sec:metodologia}. Il simulatore accetta anche un tetto massimo di
+cicli, oltre il quale si ferma segnalando di averlo raggiunto; non fa parte
+della semantica dell'array, ma è la salvaguardia grazie a cui un programma che
+non termina fa fallire la verifica invece di girare indefinitamente.
 
 \section{L'ingresso e l'uscita sul perimetro}
 \label{sec:io-bordo}
 
-Il programma ospite si affaccia sui canali di bordo con due sole funzioni, che
-si limitano a ripetere ciò che farebbe una cella vicina:
+Il programma host interagisce con i canali di bordo con due sole funzioni,
+\texttt{grid\_push} e \texttt{grid\_pop}, che si limitano a ripetere ciò che
+farebbe una cella vicina: la prima esegue la \texttt{OUT} e la \texttt{SETRDY}
+del vicino, la seconda la sua \texttt{ISRDY} e la sua \texttt{IN}.
 
-\begin{lstlisting}[caption={L'ospite come vicino},label={lst:pushpop},language=C,float=htbp]
+\begin{lstlisting}[caption={Le due funzioni con cui l'host si comporta da vicino},label={lst:pushpop},language=C,float=htbp]
 int grid_push(Grid *grid, int r, int c, int dir, uint32_t v) {
     Channel *ch = grid_at(grid, r, c) -> in_ch[dir];
     ch_write(ch, v);        /* la OUT che farebbe il vicino */
@@ -248,86 +422,143 @@ int grid_pop(Grid *grid, int r, int c, int dir, uint32_t *v) {
 }
 \end{lstlisting}
 
-Ne discendono due conseguenze. La prima è che l'ospite subisce la stessa
-\emph{backpressure} di una cella: se il valore precedente non è ancora stato
-consumato, la spinta viene rifiutata e il rifiuto viene contato. La seconda è
-che le chiamate vanno effettuate \emph{prima} del passo di clock, nella stessa
-finestra in cui le celle calcolano, così che anche l'ospite paghi il ciclo di
-latenza per salto.
+Ne discendono due conseguenze. La prima è che l'host subisce la stessa
+\emph{backpressure} di una cella, cioè la stessa spinta all'indietro con cui un
+consumatore lento frena il proprio produttore: se il valore precedente non è
+ancora stato consumato, la spinta viene rifiutata e il rifiuto viene contato. La seconda è
+che le chiamate vanno effettuate \emph{prima} del nuovo passo di clock, nella stessa
+finestra in cui le celle calcolano, così che anche l'host paghi il ciclo di
+latenza di ogni attraversamento.
 
-Alimentazione e drenaggio dei canali di bordo non sono simmetrici. In assenza di
-alimentazione, i canali di bordo restano vuoti in modo permanente: è un bordo
-aperto da cui non giunge alcun dato, e il programma in attesa gira a vuoto senza
-che la griglia si blocchi. In assenza di \textbf{drenaggio}, invece, una
-pubblicazione di perimetro resta piena in modo permanente e la cella che intende
-pubblicare in quella direzione resta bloccata sulla propria \texttt{SETRDY}. Non
-è un difetto, ma la conseguenza diretta della stessa regola che garantisce la
-consegna: se nessuno consuma, nessuno può pubblicare. Per questo il simulatore
-drena \textbf{sempre}, mentre alimenta solo su richiesta.
+Le due direzioni non sono simmetriche. Da un lato l'host alimenta i canali di
+bordo, cioè vi immette i valori che nella griglia arriverebbero da un vicino;
+dall'altro consuma ciò che le celle di perimetro pubblicano verso l'esterno,
+operazione che nel codice è \texttt{grid\_border\_drain}.
+
+In assenza di alimentazione, i canali di bordo restano vuoti in modo
+permanente: è un bordo aperto da cui non giunge alcun dato, e il programma in
+attesa ritenta indefinitamente senza che la griglia si blocchi. Se invece
+nessuno preleva, una pubblicazione di perimetro resta non letta in modo
+permanente e la cella che intende pubblicare in quella direzione resta bloccata
+sulla propria \texttt{SETRDY}. Non è un difetto, ma la conseguenza diretta della
+stessa regola che garantisce la lettura di ogni valore pubblicato: se nessuno
+consuma, nessuno può pubblicare. Per questo il simulatore consuma sempre le
+uscite di perimetro, mentre ne alimenta gli ingressi solo su richiesta.
 
 \section{Il modello RTL}
 \label{sec:rtl}
 
 Il canale e l'interfaccia di cella sono stati riscritti in SystemVerilog. Il
-confronto fra le due descrizioni mostra ciò che il passaggio a RTL elimina e
-ciò che, al contrario, costa di più.
+confronto fra la descrizione in C e quella in SystemVerilog mostra ciò che il
+passaggio a RTL elimina e ciò che, al contrario, costa di più.
 
 \subsection{Ciò che il modello RTL elimina}
 
-I campi \texttt{\_next} e la funzione di aggiornamento di fine ciclo
-\textbf{non esistono} nel Verilog. Il doppio buffer che in C va emulato a mano
-per ottenere la latenza di un ciclo per salto è la semantica nativa
-dell'assegnamento non bloccante entro un blocco sincrono:
-tutti i registri campionano il valore vecchio e cambiano insieme sul fronte. In
-hardware la fedeltà sistolica non ha costo, mentre in C richiede tre campi in
-più. Sparisce anche il vincolo sulla \texttt{OUT}, che serviva a impedire due
-caricamenti nello stesso ciclo simulato: un ingresso campionato sul fronte non
-lo consente per costruzione.
+I campi \texttt{\_next} e la funzione di aggiornamento di fine ciclo non
+esistono nel Verilog. Un registro scrive sul fronte di clock, e da quel fronte
+tiene stabile la propria uscita fino al fronte successivo: chi lo legge durante
+il ciclo vede un valore solo, quello scritto all'inizio del ciclo. Il doppio
+buffer che in C va emulato a mano per ottenere un ciclo di latenza per
+attraversamento è dunque il comportamento proprio del registro, che in
+SystemVerilog si esprime con l'assegnamento non bloccante: la fedeltà sistolica
+non costa nulla in hardware, mentre in C richiede tre campi in più.
+
+Per la stessa ragione sparisce la guardia $\mathtt{wp\_next} = \mathtt{wp}$ di
+\texttt{ch\_write}, la riga 5 del codice~\ref{lst:outsetrdy}: fra due fronti
+l'ingresso porta un solo valore, quindi il registro lo campiona una volta per
+periodo e due caricamenti nello stesso ciclo non sono esprimibili. Il vincolo
+che in C va imposto a mano è qui una proprietà del circuito.
+
 
 \subsection{Ciò che in RTL costa più che in C}
 
-I registri dati sono due e non uno. Poiché la \texttt{OUT} non è mai rifiutata a
-canale pieno, il valore appena caricato e quello pubblicato e non ancora letto
-possono differire nello stesso istante, e non possono condividere gli stessi
-flip-flop.
+I registri dati sono due e non uno. Poiché la \texttt{OUT} non è mai rifiutata,
+il valore appena caricato e quello pubblicato e non ancora letto possono
+differire nello stesso istante, e non possono condividere gli stessi flip-flop.
 
-I costi, misurati tramite sintesi e non stimati, sono i seguenti:
+Il conteggio è quello che \emph{Yosys} (sezione~\ref{sec:systemverilog}) riporta
+sintetizzando il modulo del canale, e i due \emph{testbench} eseguiti con
+\emph{Icarus Verilog} verificano che il modulo si comporti come il modello in C.
+La tabella~\ref{tab:costirtl} riporta i costi.
 
-\begin{center}
-\begin{tabular}{lrrr}
-    \toprule
-     & per canale & per cella & griglia $12 \times 12$ \\
-    \midrule
-    flip-flop & 66 & 264 & 38\,016 \\
-    porte combinatorie & 6 & 24 & 3\,456 \\
-    fili verso il vicino & 33 & 132 & --- \\
-    fili dal vicino & 1 & 4 & --- \\
-    \bottomrule
-\end{tabular}
-\end{center}
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lrrr}
+        \toprule
+         & per canale & per cella & griglia $12 \times 12$ \\
+        \midrule
+        flip-flop & 66 & 264 & 38\,016 \\
+        porte combinatorie & 6 & 24 & 3\,456 \\
+        collegamenti da 1 bit verso il vicino & 33 & 132 & --- \\
+        collegamenti da 1 bit dal vicino & 1 & 4 & --- \\
+        \bottomrule
+    \end{tabular}
+    \caption{Il costo del canale in flip-flop, porte e collegamenti}
+    \label{tab:costirtl}
+\end{table}
+
 
 I 66 flip-flop corrispondono ai due registri dati da 32 bit più i due contatori;
 le sei porte sono lo XOR e lo XNOR che costituiscono i due comparatori, più
 quattro abilitazioni. L'intero protocollo di sincronizzazione su cui è
-costruito il progetto costa dunque \textbf{66 flip-flop e 6 porte per canale}, e
-fra due celle adiacenti corrono 68 fili, 34 per verso.
+costruito il progetto costa dunque 66 flip-flop e 6 porte per canale, e
+fra due celle adiacenti corrono 68 collegamenti da 1 bit, 34 per verso.
 
 Il modello rende visibile anche il motivo per cui \texttt{SETRDY} può essere
 rifiutata e \texttt{ISRDY} no. \texttt{ISRDY} non pilota alcuna abilitazione ed
 è la lettura diretta dell'uscita di un comparatore, per cui lo zero è una
 risposta e non un rifiuto. \texttt{SETRDY} invece pilota l'abilitazione con lo
-stesso filo che restituisce, configurando un \emph{test-and-set}.
+stesso segnale che restituisce, comportandosi di fatto come un
+\emph{test-and-set}.
 Da qui si comprende anche perché il test del consumatore debba occupare una
 istruzione separata mentre quello del produttore no: \texttt{IN} impegna già
 tutti i 32 bit del registro di destinazione con il dato letto, e una istruzione
 RISC-V scrive un solo registro.
-\clearpage
+
 \section{Le due regioni parallele}
 \label{sec:omp-impl}
 
-La parallelizzazione del simulatore si riduce a due direttive, una per fase:
+Il simulatore usa OpenMP (sezione~\ref{sec:openmp}) per eseguire in parallelo
+il lavoro relativo alla simulazione di un singolo ciclo di clock. È il secondo dei due piani distinti nella
+sezione~\ref{sec:parallelizzazione}, quello del simulatore: a essere parallelo è
+il programma che simula l'array, non l'array simulato.
 
-\begin{lstlisting}[caption={Le due regioni parallele del ciclo di clock},label={lst:omp},language=C,float=htbp]
+Non è servita alcuna struttura di sincronizzazione. La separazione in due fasi
+della sezione~\ref{sec:due-fasi}, introdotta per il determinismo del risultato,
+garantisce già che in fase di calcolo ogni campo abbia un solo scrittore, e la
+parallelizzazione si riduce perciò a due direttive, una per fase, riportate nel
+codice~\ref{lst:omp}.
+
+Le due direttive portano tre scelte, tutte conseguenza della struttura del ciclo:
+
+\begin{itemize}
+    \item \texttt{schedule(static)}: ogni iterazione ha lo stesso costo, una
+          istruzione simulata, quindi distribuire a tempo di esecuzione
+          aggiungerebbe soltanto lavoro;
+    \item nessuna sezione critica e nessuna riduzione: in fase di calcolo ogni
+          campo ha un solo scrittore, per il motivo strutturale della
+          sezione~\ref{sec:parallelizzazione};
+    \item la barriera implicita a fine regione, che coincide con la separazione
+          fra le due fasi: nessun thread aggiorna finché tutti non hanno
+          terminato il calcolo, e rimuoverla con \texttt{nowait}
+          comprometterebbe il determinismo del risultato.
+\end{itemize}
+
+L'aggiornamento dei canali di bordo, la riga 12 del codice~\ref{lst:gridstep},
+resta seriale, ed è lecito perché sono $2(R+C)$ contro $R \cdot C$.
+
+L'affermazione va però circoscritta a \texttt{grid\_step}. Il programma che
+guida la simulazione fa altre due cose a ogni passo, entrambe seriali e
+entrambe fuori da questa funzione: alimenta gli ingressi di perimetro e ne
+consuma le uscite, che è ancora
+$O(R+C)$, e verifica se qualche cella sia ancora viva, che è invece un ciclo su
+tutte le $R \cdot C$ celle. Quest'ultimo è di costo per cella minimo, una
+lettura e una disgiunzione contro una istruzione interpretata, ma non si
+riduce con la griglia come fa il perimetro, ed è il motivo per cui la frazione
+seriale misurata nella sezione~\ref{sec:pareggio} scende al crescere della
+griglia senza mai annullarsi.
+
+\begin{lstlisting}[caption={Le due regioni parallele con cui il simulatore esegue un ciclo di clock},label={lst:omp},language=C,float=htbp]
 #pragma omp parallel for schedule(static)
 for (int i = 0; i < n; i++) {                /* fase compute */
     if (grid -> risc[i].running) {
@@ -343,15 +574,3 @@ for (int i = 0; i < n; i++) {                /* fase commit */
     }
 }
 \end{lstlisting}
-
-La distribuzione è statica perché ogni iterazione ha lo stesso costo (una
-istruzione simulata), e decidere a tempo di esecuzione aggiungerebbe soltanto
-lavoro. Non compare alcuna sezione critica né alcuna riduzione, perché
-\textbf{non sono necessarie}, per il motivo strutturale già esposto nella
-sezione~\ref{sec:parallelizzazione}.
-
-La barriera implicita a fine ciclo parallelo coincide con la separazione fra le
-due fasi: nessun thread aggiorna finché tutti non hanno terminato il calcolo.
-Rimuoverla con la clausola \texttt{nowait} comprometterebbe il determinismo del
-risultato. L'aggiornamento dei canali di bordo resta seriale, ed è lecito
-perché sono $2(R+C)$ contro $R \cdot C$.

@@ -2,73 +2,232 @@
 \chapter{Risultati}
 \label{ch:risultati}
 
+Il capitolo riporta i risultati degli esperimenti effettuati 
+e si articola in cinque parti. Le sezioni~\ref{sec:metodologia} e~\ref{sec:taratura} 
+descrivono come vengono misurati i dati e mostrano che i contatori su cui tutto il resto si appoggia sono corretti. 
+La sezione~\ref{sec:kernel} presenta i nove programmi di prova e la proprietà che
+ciascuno dimostra. La sezione~\ref{sec:nobp} contiene il risultato principale,
+cioè il confronto fra il comportamento del canale con e senza \emph{ready bit}.
+Le sezioni~\ref{sec:scalabilita} e~\ref{sec:altre-misure} misurano l'array
+simulato, la sezione~\ref{sec:prestazioni} misura il simulatore che lo
+esegue. La distinzione fra i due, posta all'inizio del
+capitolo~\ref{ch:progetto}, in questo capitolo si riconosce dall'unità di
+misura. Un numero di cicli è una grandezza dell'array simulato: conta i passi
+che le celle compiono per arrivare al risultato, e resta lo stesso su
+qualunque macchina e con qualunque numero di thread. Un tempo in secondi è
+una grandezza del simulatore: misura quanto impiega il programma in C a
+riprodurre quei cicli, e cambia con la macchina, con il compilatore e con il
+numero di thread.
+
+
 \section{Metodologia della misura}
 \label{sec:metodologia}
 
 Ogni programma di prova è eseguito da un programma di verifica in C che ne
 controlla il risultato con delle asserzioni e stampa una riga in formato CSV per
-ogni esecuzione. I programmi di verifica sono sette e non nove, perché
-\texttt{prodcons} e \texttt{chain} ne condividono uno e \texttt{memtest} è
-eseguito da quello di \texttt{broadcast}; di questi, sei entrano nello sweep dei
-tempi della sezione~\ref{sec:prestazioni}, mentre \texttt{pesante} ha sweep
-propri. Un solo comando ripete tutte le prove
-su tutte le configurazioni e rigenera i file di dati da cui provengono le tabelle
-di questo capitolo.
+ogni esecuzione. I programmi di verifica sono sette e non nove, perché due
+di essi perché due di essi danno luogo a due prove diverse ciascuno, come riporta la tabella~\ref{tab:programmi}.
+I file di dati da cui provengono le tabelle di questo capitolo sono rigenerati
+da un bersaglio del \emph{Makefile}, che esegue lo sweep introdotto nella
+sezione~\ref{sec:c-assembly}; un secondo bersaglio lo ripete per ogni numero
+di thread e produce i tempi della sezione~\ref{sec:prestazioni}.
 
-Le configurazioni sono uno sweep su cinque parametri: il ritardo artificiale
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lll}
+        \toprule
+        programma di prova & programma di verifica & nello sweep dei tempi \\
+        \midrule
+        \texttt{prodcons}  & \texttt{test\_catena}    & no \\
+        \texttt{chain}     & \texttt{test\_catena}    & sì \\
+        \texttt{bordo}     & \texttt{test\_bordo}     & sì \\
+        \texttt{broadcast} & \texttt{test\_broadcast} & sì \\
+        \texttt{memtest}   & \texttt{test\_broadcast} & no, solo $1\times1$ \\
+        \texttt{reduce}    & \texttt{test\_reduce}    & sì \\
+        \texttt{matmul}    & \texttt{test\_matmul}    & sì \\
+        \texttt{jacobi}    & \texttt{test\_jacobi}    & sì \\
+        \texttt{pesante}   & \texttt{test\_pesante}   & no, ha sweep propri \\
+        \bottomrule
+    \end{tabular}
+    \caption[I nove programmi di prova e le sette prove di verifica corrispondenti]{
+             I nove programmi di prova e i sette di verifica. \texttt{chain} generalizza
+             \texttt{prodcons} e ne riusa quindi le asserzioni;
+             \texttt{memtest} si autoverifica e lascia il verdetto in un
+             registro, per cui gli basta l'ambiente di \texttt{broadcast}. Sei
+             programmi entrano nello sweep dei tempi della
+             sezione~\ref{sec:prestazioni}: \texttt{prodcons} ne resta fuori
+             perché \texttt{chain} lo contiene come caso $C = 2$, mentre
+             \texttt{pesante} è uno strumento di misura e ha sweep propri.}
+    \label{tab:programmi}
+\end{table}
+
+Lo sweep copre cinque parametri: il ritardo artificiale
 del consumatore ($0, 1, 4, 8, 25, 60$ cicli), la lunghezza della catena
 ($2, 3, 5, 12$ colonne), la forma della griglia ($1\times1$, $1\times6$,
 $6\times1$, $3\times4$, $4\times4$, $8\times8$, $12\times12$), la lunghezza del
-prodotto interno ($k = 1, 4, 7$) e il campo iniziale dello stencil, che è
-l'interno a zero oppure il campo $r+c$. Le forme $1\times6$ e $6\times1$ hanno
-lo stesso numero di celle ma isolano i due cicli di cablaggio, est-ovest e
-nord-sud, che le forme quadrate sovrappongono.
+prodotto interno ($k = 1, 4, 7$) e il campo iniziale dello stencil. Le forme
+$1\times6$ e $6\times1$ hanno lo stesso numero di celle ma isolano i due cicli
+di cablaggio, est-ovest e nord-sud, che le forme quadrate sovrappongono.
 
-Queste forme verificano la correttezza e non le prestazioni, ed è la ragione per
-cui rimangono piccole, in quanto una asserzione soddisfatta su $12\times12$ non dipende dalla
-dimensione della griglia, mentre un tempo di esecuzione sì. Le misure di scalabilità
+L'ultimo parametro è il campo iniziale dello stencil, e va descritto insieme
+all'esperimento in cui compare. Lo stencil di Jacobi risolve un problema a
+bordo fissato: il valore che circonda la griglia è imposto dall'esterno e non
+è una incognita. Qui è la costante 64, che l'host ripubblica a ogni ciclo su
+tutti i canali di ingresso di perimetro, così che una cella di bordo legga 64
+dal canale che si affaccia fuori come leggerebbe il valore del vicino da un
+canale interno. Ogni cella sostituisce il proprio valore con la media dei
+quattro vicini, e la media di quattro valori pari a 64 vale ancora 64: il
+campo uniformemente a 64 riproduce sé stesso ed è il punto fisso dello
+stencil. Entrambe le esecuzioni vi arrivano esattamente, e questo rende
+misurabile la convergenza: il risultato è noto in anticipo, e l'unica
+grandezza da osservare è dopo quante iterazioni il campo lo raggiunge.
+
+Restano liberi i soli valori interni alla prima iterazione, ed è quello il
+parametro: o tutte le celle valgono zero, oppure la cella $(r,c)$ vale $r+c$.
+I due punti di partenza si oppongono per struttura, perché il primo è
+uniforme e non contiene alcuna informazione sulla posizione mentre il secondo
+cresce lungo la diagonale, e servono a stabilire se l'iterazione in cui il
+campo smette di cambiare dipenda dal campo iniziale oppure soltanto dalla
+forma della griglia. La tabella~\ref{tab:convergenza} riporta il confronto.
+
+I cinque parametri danno in tutto ottanta configurazioni: ventiquattro per la
+catena, sei ritardi per quattro lunghezze; sette ciascuno per \texttt{bordo},
+\texttt{broadcast} e \texttt{reduce}, una per forma; ventuno per il prodotto di
+matrici, tre lunghezze del prodotto interno per sette forme; quattordici per lo
+stencil, sette forme per due campi iniziali. Sono queste ottanta, ripetute per
+le cinque conte di thread, a dare le quattrocento esecuzioni citate nella
+sezione~\ref{sec:prestazioni}.
+
+Queste forme verificano la correttezza e non le prestazioni, ed è per questo
+che rimangono piccole: una asserzione soddisfatta su $12\times12$ non dipende
+dalla dimensione della griglia, mentre un tempo di esecuzione sì. Le misure di scalabilità
 della sezione~\ref{sec:pareggio} hanno perciò uno sweep proprio, che arriva a
 $256\times256$.
 
 Le tre grandezze riportate ovunque sono:
 
-\begin{description}
-    \item[cicli] i passi di clock globale dal primo all'ultimo processore fermo.
-          Non è un tempo e non è un conteggio di istruzioni: in un ciclo ogni
-          cella viva esegue una istruzione.
-    \item[ritentativi] quante \texttt{SETRDY} hanno restituito 0, cioè hanno
-          trovato il canale di uscita ancora pieno, sommate su tutte le celle.
-    \item[attese] quante \texttt{ISRDY} hanno restituito 0, cioè hanno trovato
-          il canale di ingresso vuoto, sommate su tutte le celle.
-\end{description}
+\begin{itemize}
+    \item \emph{Cicli.} I passi di clock globale dall'inizio fino al ciclo in cui 
+          l'ultimo processore si ferma.
+          Non è un tempo e non è un conteggio di istruzioni: in un ciclo
+          ogni cella viva esegue una istruzione, e quindi il numero di cicli
+          coincide con il numero di istruzioni della sola cella che si ferma per
+          ultima, mentre le istruzioni eseguite dall'array sono la somma su tutte
+          le celle.
+    \item \emph{Ritentativi.} Quante \texttt{SETRDY} hanno restituito 0, cioè
+          hanno trovato il canale di uscita ancora pieno, sommate su tutte le
+          celle.
+    \item \emph{Attese.} Quante \texttt{ISRDY} hanno restituito 0, cioè hanno
+          trovato il canale di ingresso vuoto, sommate su tutte le celle.
+\end{itemize}
 
-Gli ultimi due \textbf{contano istruzioni fallite e non cicli persi}. Un giro di
-ritentativo costa quanto è lungo il ciclo del programma, cinque istruzioni per
-ritentativo e quattro per attesa nel programma più semplice, quindi il costo in
-tempo si legge nella colonna dei cicli e non in queste due. Il totale non
-localizza inoltre l'attesa: per individuare il collo di bottiglia serve il dato
-per cella, che il simulatore stampa come mappa della griglia.
+Gli ultimi due contano istruzioni fallite e non cicli persi, e la differenza
+conta perché un ritentativo non costa un ciclo ma un giro intero del ciclo di
+attesa. In \texttt{prodcons}, i cui due cicli sono riportati nel
+codice~\ref{lst:prodcons}, sono cinque istruzioni per ritentativo e quattro
+per attesa; nella forma minima del codice~\ref{lst:bordo}, che non tiene il
+conto, sono tre e due. Il costo in tempo si legge quindi nella colonna dei
+cicli e non in queste due. Il totale non localizza inoltre l'attesa: per
+individuare il collo di bottiglia serve il dato per cella, che il simulatore
+stampa come mappa della griglia.
 
 I contatori sono tenuti dal simulatore e non dai programmi, quindi valgono anche
-per i programmi che non tengono il conto in assembly.
+per i programmi che non tengono il conto in assembly. Contano però i soli
+tentativi delle celle: quando è l'host a essere rifiutato su un canale di
+bordo, il rifiuto non entra in queste due colonne ma in una grandezza a sé, le
+\emph{spinte respinte}, che compare solo dove serve, cioè nel prodotto di
+matrici della sezione~\ref{sec:unoxuno}.
 
-\section{Taratura dei contatori}
+\paragraph*{La macchina di sviluppo.} I numeri di cicli non dipendono dalla macchina, perché sono una grandezza
+dell'array simulato, mentre i tempi della sezione~\ref{sec:prestazioni} sì, e vanno
+letti rispetto alla macchina che li ha prodotti, riportata nella
+tabella~\ref{tab:macchina}.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{ll}
+        \toprule
+        processore & Intel Core i7-12700H \\
+                   & 6 core prestazionali e 8 efficienti, 20 thread \\
+        frequenza  & da 0,4 a 4,7 GHz, regolatore in modalità di risparmio \\
+        cache di ultimo livello & 24\,MB condivisi \\
+        memoria    & 16\,GB \\
+        sistema    & Linux Mint 22.3, kernel 6.8 \\
+        compilatore & gcc 13.3 con \texttt{-O2 -fopenmp}, OpenMP 4.5 \\
+        \bottomrule
+    \end{tabular}
+    \caption{La macchina su cui sono state prese le misure di tempo}
+    \label{tab:macchina}
+\end{table}
+
+Due sue caratteristiche entrano direttamente nei risultati. La cache di ultimo
+livello da 24\,MB è la soglia che spiega il minimo su $32\times32$ della
+tabella~\ref{tab:memoria}, che è l'ultima forma a entrarvi per intero. La
+convivenza di core prestazionali e core efficienti, unita al regolatore di
+frequenza in modalità di risparmio e al fatto che la macchina non sia dedicata,
+è invece la ragione per cui il valore assoluto dello speedup non è riproducibile
+fra sessioni diverse, mentre la forma della curva lo è: la
+sezione~\ref{sec:pareggio} torna sul punto e ne quantifica la dispersione.
+
+\section{Validazione dei contatori}
 \label{sec:taratura}
 
-I contatori del simulatore sono tarati contro un conteggio indipendente. Due
-programmi di prova tengono \textbf{lo stesso conto in assembly}, in due registri
-salvati, e il programma di verifica somma quei registri su tutte le celle e
-asserisce che coincidano con i totali del simulatore. Ogni giro di ritentativo
-esegue esattamente una \texttt{ISRDY} o una \texttt{SETRDY} fallita, quindi i due
-numeri \emph{devono} essere uguali.
+I contatori di ritentativi e attese sono lo strumento con cui l'intero capitolo
+misura il comportamento del protocollo, e sono tenuti dal simulatore:
+l'interprete li incrementa quando una \texttt{SETRDY} o una \texttt{ISRDY}
+restituisce 0. Un errore nel punto di incremento non avrebbe sintomi, perché
+tutte le tabelle del capitolo provengono dagli stessi due contatori e
+resterebbero coerenti fra loro. La validazione consiste perciò nel confrontarli
+con un secondo conteggio, prodotto da un meccanismo indipendente.
 
-La taratura estende la validità dei contatori agli altri programmi, che non
-tengono un conteggio in assembly con cui confrontarsi.
+Quel conteggio è tenuto dai programmi di prova. Un giro di ritentativo è per
+costruzione un salto all'indietro del programma assembly, come le righe 3 e 7
+del codice~\ref{lst:bordo}, riportato nella sezione seguente, e in
+\texttt{prodcons} e in \texttt{chain} due \texttt{addi} lo registrano nei
+registri salvati \texttt{s3} e \texttt{s4}, come riporta il
+codice~\ref{lst:prodcons}. L'indipendenza è strutturale: il
+conteggio nasce dal flusso di controllo del programma e non attraversa il
+codice del simulatore, quindi resterebbe corretto anche se l'interprete non
+contasse nulla.
+
+\begin{lstlisting}[caption={I due cicli di \texttt{prodcons.s} che tengono il conto},label={lst:prodcons},language=RISCV,float=htbp]
+1:  OUT    s1, EST         # ritentativo: cinque istruzioni
+    SETRDY t0, EST
+    bnez   t0, 5f
+    addi   s3, s3, 1       # canale ancora pieno: conta e ritenta
+    j      1b
+
+4:  ISRDY  t0, OVEST       # attesa: quattro istruzioni
+    bnez   t0, 6f
+    addi   s4, s4, 1       # niente da leggere: conta e ritenta
+    j      4b
+\end{lstlisting}
+
+Al termine dell'esecuzione il programma di verifica in C legge \texttt{s3} e
+\texttt{s4} da tutte le celle, li somma e asserisce che i totali coincidano con
+quelli del simulatore. In questi due programmi ogni giro del ciclo di attesa
+esegue esattamente una \texttt{ISRDY} o \texttt{SETRDY} fallita e un solo
+incremento del contatore in assembly: fra i tentativi che l'interprete conta e
+gli incrementi che il programma esegue vale quindi una corrispondenza
+biunivoca, e il confronto è una uguaglianza fra interi, senza tolleranza. Una
+differenza di una unità fa fallire l'asserzione. La corrispondenza è una
+proprietà di questi due cicli e non di ogni ciclo di attesa, e il
+codice~\ref{lst:broadcast} ne riporta uno che interroga due direzioni e quindi
+esegue due \texttt{ISRDY} per ogni incremento del proprio contatore.
+
+Poiché l'interprete conta negli stessi punti per qualunque programma, il
+confronto riuscito su questi due estende la validità dei contatori agli altri
+sette, che non tengono un conteggio proprio con cui confrontarsi. L'estensione
+ha un limite: né \texttt{prodcons} né \texttt{chain} leggono da canali di
+bordo, quindi la validazione riguarda il lato cella del protocollo e
+non le spinte dell'host, contate a parte come descritto nella
+sezione~\ref{sec:metodologia}.
 
 \section{I programmi di prova}
 \label{sec:kernel}
 
-I nove programmi dimostrano ciascuno \textbf{una} proprietà. I primi quattro
+I nove programmi dimostrano ciascuno una sola proprietà. I primi quattro
 isolano un meccanismo alla volta: il protocollo fra due celle, l'ingresso e
 l'uscita sul perimetro, l'attesa su più eventi, la memoria privata. I tre
 successivi mostrano tre modi diversi di far attraversare i dati alla griglia.
@@ -76,28 +235,31 @@ Gli ultimi due sono i kernel completi, uno numerico e uno sintetico.
 
 \subsection{\texttt{prodcons}: il protocollo minimo}
 
-Griglia $1\times2$: la colonna 0 manda i valori da 1 a $Q$ verso est, la colonna
+Griglia $1\times2$: la colonna 0 manda i valori da 1 a $Q$ verso est, dove $Q$
+è una costante di compilazione che vale cinque in tutte le prove, e la colonna
 1 li accumula. I due ruoli sono scelti dalla posizione. Il consumatore può
 essere rallentato di un numero di cicli configurabile, che è il parametro con
-cui si provoca la \emph{backpressure} in modo controllato. È il programma su cui
-si basa la taratura della sezione~\ref{sec:taratura}.
+cui si provoca la \emph{backpressure} in modo controllato. È, insieme a
+\texttt{chain}, uno dei due programmi su cui si basa la validazione dei
+contatori della sezione~\ref{sec:taratura}.
 
 \emph{Verifica}: la somma vale $Q(Q+1)/2$ per ogni ritardo.
 
 \subsection{\texttt{bordo}: l'ingresso e l'uscita sul perimetro}
 
-Quattro istruzioni: attende un valore da nord e lo ripubblica a sud. Entrambi i
+Quattro istruzioni di comunicazione: attende un valore da nord e lo ripubblica
+a sud. Entrambi i
 capi della catena cadono \emph{fuori} dalla griglia, quindi la prima riga
 attende un vicino che non esiste e l'ultima pubblica verso nessuno: in entrambi
-i casi l'interlocutore è l'ospite. È il programma su cui si vede perché il
-drenaggio delle uscite di perimetro non è opzionale.
+i casi l'interlocutore è l'host. Il programma mostra perché il consumo delle
+uscite di perimetro non è opzionale.
 
-\emph{Verifica}: esce esattamente un valore per colonna, né perso né duplicato.
-
-Il corpo, riportato nel codice~\ref{lst:bordo}, è l'intero programma, ed è la
+Il corpo, riportato nel codice~\ref{lst:bordo}, è l'intero programma e la
 forma canonica da cui derivano tutti gli altri: si attende in un ciclo che il
 canale abbia un dato, lo si legge, lo si carica verso la direzione di uscita e
 si ripete la pubblicazione finché non viene accettata.
+
+\emph{Verifica}: esce esattamente un valore per colonna, né perso né duplicato.
 
 \begin{lstlisting}[caption={Il corpo di \texttt{bordo.s}: la forma minima del protocollo},label={lst:bordo},language=RISCV,float=htbp]
 _start:
@@ -110,50 +272,109 @@ _start:
     ecall
 \end{lstlisting}
 
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        cella/.style={draw, rounded corners=1pt, minimum width=2cm,
+                      minimum height=1.25cm, font=\scriptsize, align=center},
+        dato/.style={-{Stealth[length=1.8mm]}, gray!70},
+        esterno/.style={-{Stealth[length=2mm]}, thick, dashed},
+        eti/.style={font=\scriptsize, inner sep=1.5pt},
+        puntini/.style={font=\small, fill=white, inner sep=2pt}
+    ]
+    \node[cella] (a0) at (0,0)      {$(0,0)$\\ $v_0$};
+    \node[cella] (a1) at (2.6,0)    {$(0,1)$\\ $v_1$};
+    \node[cella] (a2) at (6.6,0)    {$(0,C-1)$\\ $v_{C-1}$};
+    \node[cella] (b0) at (0,-2)     {$(1,0)$\\ $v_0$};
+    \node[cella] (b1) at (2.6,-2)   {$(1,1)$\\ $v_1$};
+    \node[cella] (b2) at (6.6,-2)   {$(1,C-1)$\\ $v_{C-1}$};
+    \node[cella] (c0) at (0,-5.4)   {$(R-1,0)$\\ $v_0$};
+    \node[cella] (c1) at (2.6,-5.4) {$(R-1,1)$\\ $v_1$};
+    \node[cella] (c2) at (6.6,-5.4) {$(R-1,C-1)$\\ $v_{C-1}$};
+
+    % l'eco scende, e le colonne non si parlano
+    \foreach \u/\v in {a0/b0, b0/c0, a1/b1, b1/c1, a2/b2, b2/c2} {
+        \draw[dato] (\u.south) -- (\v.north);
+    }
+    % i due capi cadono fuori dalla griglia: li tiene l'host
+    \foreach \n in {a0, a1, a2} { \draw[esterno] ($(\n.north)+(0,0.9)$) -- (\n.north); }
+    \foreach \n in {c0, c1, c2} { \draw[esterno] (\n.south) -- ++(0,-0.9); }
+
+    \foreach \y in {0,-2,-5.4} { \node[puntini] at (4.6,\y) {$\cdots$}; }
+    \foreach \x in {0,2.6,6.6} { \node[puntini] at (\x,-3.7) {$\vdots$}; }
+
+    \node[eti, anchor=west] at (0.15, 1.05) {$v_0$ dall'host};
+    \node[eti, anchor=west] at (0.15, -6.5) {all'host};
+    \end{tikzpicture}
+    \caption{L'eco verticale di \texttt{bordo} su una griglia $R \times C$: ogni
+             cella attende un valore da nord e lo ripubblica a sud, e le $C$
+             colonne non comunicano fra loro. I due capi di ogni colonna cadono
+             fuori dalla griglia (frecce tratteggiate): la prima riga attende un
+             vicino che non esiste e l'ultima pubblica verso nessuno, e in
+             entrambi i casi l'interlocutore è l'host.}
+    \label{fig:bordo}
+\end{figure}
+
 \subsection{\texttt{broadcast}: attendere due eventi senza uno scheduler}
 
 Un valore parte da $(0,0)$ e raggiunge ogni cella propagandosi come onda
-diagonale: la cella $(r,c)$ lo vede dopo $r+c$ salti. Ogni cella che non sia la
+diagonale: la cella $(r,c)$ lo vede dopo $r+c$ passi di propagazione. Ogni cella che non sia la
 sorgente non sa da quale dei due predecessori arriverà per primo, quindi
-interroga alternativamente nord e ovest e prende il primo che risponde. Dimostra
-che un test non bloccante permette di \textbf{attendere più eventi
-contemporaneamente} senza alcuno scheduler.
+interroga alternativamente nord e ovest e prende il primo che risponde. Il
+programma dimostra che un test non bloccante permette di attendere più eventi
+contemporaneamente senza alcuno scheduler.
 
 \begin{figure}[htbp]
     \centering
     \begin{tikzpicture}[
-        cella/.style={draw, rounded corners=1pt, minimum size=1cm, font=\small},
-        onda/.style={-{Stealth[length=1.6mm]}, gray!70}
+        cella/.style={draw, rounded corners=1pt, minimum width=2cm,
+                      minimum height=1.25cm, font=\scriptsize, align=center},
+        onda/.style={-{Stealth[length=1.8mm]}, gray!70},
+        eti/.style={font=\scriptsize, inner sep=1.5pt, text=black},
+        puntini/.style={font=\small, fill=white, inner sep=2pt}
     ]
-    \foreach \r in {0,1,2,3} {
-        \foreach \c in {0,1,2,3} {
-            \pgfmathtruncatemacro{\t}{\r+\c}
-            \node[cella] (n\r\c) at (\c*1.35, -\r*1.35) {$\t$};
-        }
-    }
-    \foreach \r in {0,1,2,3} {
-        \foreach \c in {0,1,2} {
-            \pgfmathtruncatemacro{\d}{\c+1}
-            \draw[onda] (n\r\c.east) -- (n\r\d.west);
-        }
-    }
-    \foreach \c in {0,1,2,3} {
-        \foreach \r in {0,1,2} {
-            \pgfmathtruncatemacro{\d}{\r+1}
-            \draw[onda] (n\r\c.south) -- (n\d\c.north);
-        }
-    }
-    \node[font=\footnotesize, anchor=south east] at (-0.35, 0.7) {la sorgente};
-    \draw[-{Stealth[length=1.6mm]}] (-0.4, 0.65) -- (n00.north west);
+    % prima riga, seconda riga, ultima riga: fra loro le righe elise
+    \node[cella] (a0) at (0,0)      {$(0,0)$\\ $0$};
+    \node[cella] (a1) at (2.6,0)    {$(0,1)$\\ $1$};
+    \node[cella] (a2) at (6.6,0)    {$(0,C-1)$\\ $C-1$};
+    \node[cella] (b0) at (0,-2)     {$(1,0)$\\ $1$};
+    \node[cella] (b1) at (2.6,-2)   {$(1,1)$\\ $2$};
+    \node[cella] (b2) at (6.6,-2)   {$(1,C-1)$\\ $C$};
+    \node[cella] (c0) at (0,-5.4)   {$(R-1,0)$\\ $R-1$};
+    \node[cella] (c1) at (2.6,-5.4) {$(R-1,1)$\\ $R$};
+    \node[cella] (c2) at (6.6,-5.4) {$(R-1,C-1)$\\ $(R+C)-2$};
+
+    % propagazione verso est: il valore v esce dalla sorgente
+    \draw[onda] (a0.east) -- node[eti, above=-2pt] {$v$} (a1.west);
+    \draw[onda] (b0.east) -- (b1.west);
+    \draw[onda] (c0.east) -- (c1.west);
+    \draw[onda] (a1.east) -- (a2.west);
+    \draw[onda] (b1.east) -- (b2.west);
+    \draw[onda] (c1.east) -- (c2.west);
+    % propagazione verso sud
+    \draw[onda] (a0.south) -- node[eti, right=1pt] {$v$} (b0.north);
+    \draw[onda] (a1.south) -- (b1.north);
+    \draw[onda] (a2.south) -- (b2.north);
+    \draw[onda] (b0.south) -- (c0.north);
+    \draw[onda] (b1.south) -- (c1.north);
+    \draw[onda] (b2.south) -- (c2.north);
+
+    % le celle elise, sulle stesse corsie delle frecce
+    \foreach \y in {0,-2,-5.4} { \node[puntini] at (4.6,\y) {$\cdots$}; }
+    \foreach \x in {0,2.6,6.6} { \node[puntini] at (\x,-3.7) {$\vdots$}; }
+
+    \node[font=\footnotesize, anchor=south east] at (-1.2, 1.25) {la sorgente};
+    \draw[-{Stealth[length=1.6mm]}] (-1.15, 1.2) -- (a0.north west);
     \end{tikzpicture}
-    \caption{L'onda diagonale del programma \texttt{broadcast}. Ogni cella è
-             etichettata con il ciclo in cui riceve il valore, cioè $r+c$: le
-             celle sulla stessa antidiagonale lo ricevono insieme.}
+    \caption{L'onda diagonale di \texttt{broadcast} su una griglia $R \times C$.
+             Il valore $v$ parte da $(0,0)$ e si propaga verso est e verso sud;
+             sotto la posizione, ogni cella porta il numero di passi che $v$
+             compie per raggiungerla, cioè $r+c$. Le celle sulla stessa
+             antidiagonale lo ricevono insieme e l'ultima dopo $R+C-2$ passi. Il
+             costo in cicli è maggiore, perché ogni passo comprende il ciclo di
+             attesa del ricevente e non il solo attraversamento del canale.}
     \label{fig:broadcast}
 \end{figure}
-
-\emph{Verifica}: il valore è arrivato in tutte le $R \times C$ celle, su sette
-forme.
 
 \begin{lstlisting}[caption={L'attesa alternata su due direzioni in \texttt{broadcast.s}},label={lst:broadcast},language=RISCV,float=htbp]
 attesa:
@@ -173,62 +394,83 @@ un test bloccante questo programma non sarebbe scrivibile: sceglierne uno
 dei due significherebbe sospendersi sul predecessore sbagliato, e non c'è modo
 di saperlo in anticipo.
 
+\emph{Verifica}: il valore è arrivato in tutte le $R \times C$ celle, sulle
+sette forme dello sweep della sezione~\ref{sec:metodologia}, cioè da
+$1\times1$ a $12\times12$.
+
 
 \subsection{\texttt{memtest}: la memoria privata}
 
-Si autoverifica e lascia il verdetto in un registro. Controlla che una lettura
+Il programma si "autoverifica" e lascia l'esito della verifica in un registro. Controlla che una lettura
 rilegga ciò che la scrittura ha memorizzato, che gli spiazzamenti siano in byte
 e non in parole, che le scritture di un solo byte non tocchino il resto della
 parola e che le estensioni di segno siano quelle giuste. L'ultimo controllo è un
-accesso appena oltre i 16\,KB: la cella deve fermarsi, altrimenti scriverebbe
-nella memoria di quella successiva, cioè introdurrebbe memoria condivisa fra
-celle, che è il difetto più insidioso di questa architettura perché non
-produce alcun sintomo osservabile all'infuori di un risultato sbagliato.
-\subsection{Come i dati attraversano la griglia}
-\label{sec:movimento}
+accesso appena oltre i 16\,KB, e riguarda il simulatore prima ancora
+dell'array simulato. Nell'array le memorie delle celle sono separate per
+costruzione e nessun collegamento le unisce, quindi un accesso fuori
+intervallo non raggiunge nessun'altra cella: su una macchina reale si
+manifesterebbe come errore di accesso alla memoria, l'analogo del
+\texttt{SIGSEGV} di un processo. Nel simulatore quelle memorie sono invece
+campi di una \texttt{struct}, e le celle sono elementi contigui di uno stesso
+vettore in C: senza guardia la scrittura esce dal campo e cade sullo stato di
+controllo della cella, sui suoi canali di uscita e infine sulla cella
+successiva, introducendo memoria condivisa fra celle. È il difetto più
+insidioso del simulatore, perché non produce sintomi osservabili all'infuori
+di un risultato sbagliato. La guardia ferma la cella e riporta il simulatore
+al comportamento dell'array.
 
-I tre programmi che seguono hanno in comune il fatto di usare \textbf{canali
-unidirezionali}: si legge da ovest e da nord, si scrive verso est e verso sud.
+\emph{Verifica}: il registro del verdetto vale la costante attesa sull'unica
+cella della griglia. Il valore atteso viene caricato \emph{prima} dell'accesso fuori
+memoria, e le due istruzioni che lo seguono lo azzerano. Se la guardia c'è,
+l'esecuzione si ferma sull'accesso e il valore sopravvive; se manca,
+l'esecuzione prosegue, quelle due istruzioni girano e la verifica
+fallisce.\looseness=-1
+
+\subsection*{Come i dati attraversano la griglia}
+
+I tre programmi che seguono hanno in comune il fatto di usare canali
+unidirezionali: si legge da ovest e da nord, si scrive verso est e verso sud.
 Tutte le dipendenze puntano quindi verso sud-est, e una catena di attese non può
-chiudersi in cerchio: risale fino al bordo, dove c'è l'ospite. È la ragione per
-cui in questi tre, a differenza di \texttt{jacobi}, ricevere prima di spedire
+chiudersi in cerchio: risale fino al bordo, dove c'è l'host. Per questo, in
+questi tre, a differenza di \texttt{jacobi}, ricevere prima di spedire
 non porta a \emph{deadlock}.
 
-Si distinguono però per \emph{che cosa} si muove, e i tre casi esauriscono le
-possibilità. In \texttt{chain} a spostarsi è il risultato, lungo una linea. In
+Si distinguono però per \emph{che cosa} si muove.
+In \texttt{chain} a spostarsi è il risultato, lungo una linea. In
 \texttt{reduce} è ancora il risultato, ma lungo un percorso a L che fa
 convergere su una sola cella terminale il contributo di tutte le altre. In
-\texttt{matmul} si spostano gli operandi, e i risultati restano fermi
+\texttt{matmul} si spostano gli operandi, mentre i risultati restano fermi
 distribuiti su tutta la griglia. Il primo caso è una pipeline, il secondo una
-riduzione, il terzo è l'array sistolico nella sua forma classica.
+riduzione, il terzo lo schema sistolico classico della moltiplicazione di matrici.
 
 \subsection{\texttt{chain}: il risultato scorre in linea}
 
-Generalizza \texttt{prodcons} a $1\times C$: una sorgente, $N$ nodi di inoltro,
+Generalizza \texttt{prodcons} a $1\times C$: una sorgente, $C-2$ nodi di inoltro,
 un pozzo. Con $C = 2$ degenera esattamente in \texttt{prodcons}, ed è lo stesso
 programma di verifica a provarli entrambi. I nodi intermedi sanno quando
 fermarsi perché il numero di valori è una costante nota a tutti: non c'è nessun
 valore sentinella nel flusso di dati.
 
-\emph{Verifica}: la somma vale $Q(Q+1)/2$ su sei ritardi per quattro lunghezze,
-cioè ventiquattro combinazioni. La catena cambia la latenza, \textbf{mai} il
-risultato.
+\emph{Verifica}: il pozzo accumula $Q(Q+1)/2$ su sei ritardi per quattro lunghezze,
+cioè ventiquattro combinazioni. La catena cambia la latenza, mai il risultato.
 
 \begin{figure}[htbp]
     \centering
     \begin{tikzpicture}[
         cella/.style={draw, rounded corners=1pt, minimum width=2.1cm,
-                      minimum height=1cm, font=\small, align=center},
+                      minimum height=1.1cm, font=\scriptsize, align=center},
         flusso/.style={-{Stealth[length=2mm]}, thick}
     ]
-    \node[cella] (s) at (0,0) {sorgente\\{\footnotesize colonna 0}};
-    \node[cella] (f1) at (2.9,0) {inoltro};
-    \node[cella] (f2) at (5.8,0) {inoltro};
-    \node[cella] (p) at (8.7,0) {pozzo\\{\footnotesize colonna $C-1$}};
+    \node[cella] (s) at (0,0) {$(0,0)$\\ sorgente};
+    \node[cella] (f1) at (3.2,0) {$(0,1)$\\ inoltro};
+    \node[cella] (f2) at (6.4,0) {$(0,C-2)$\\ inoltro};
+    \node[cella] (p) at (9.6,0) {$(0,C-1)$\\ pozzo};
     \draw[flusso] (s) -- (f1);
     \draw[flusso] (f1) -- (f2);
     \draw[flusso] (f2) -- (p);
-    \node[font=\footnotesize, above=2pt] at (1.45,0.08) {$1 \dots Q$};
+    \node[font=\footnotesize, anchor=south] at (1.6,0.65) {$1 \dots Q$};
+    \node[font=\footnotesize, anchor=south] at (4.8,0.65) {$\cdots$};
+    \node[font=\footnotesize, anchor=north] at (9.6,-0.65) {$\sum_{q=1}^{Q} q$};
     \end{tikzpicture}
     \caption{Il percorso dei dati in \texttt{chain}: una linea, senza ingresso
              né uscita di bordo. Sorgente e pozzo sono entrambi celle della
@@ -240,17 +482,21 @@ risultato.
 
 Riduzione in due fasi: prima ogni riga si somma da ovest a est, poi l'ultima
 colonna si somma da nord a sud, e il totale esce dall'angolo sud-est. Il
-percorso è lungo $(C-1) + (R-1)$ salti invece del logaritmo di un albero, ma
-\textbf{le celle possono parlare solo con i quattro vicini: l'albero non è
-cablabile}. Il contributo della cella $(r,c)$ è $r+c$, così che il totale atteso
+percorso è lungo $(C-1) + (R-1)$ passi di propagazione invece del logaritmo di un
+albero. Un albero si potrebbe innestare sulla maglia, instradandone i rami
+attraverso le celle, ma non guadagnerebbe nulla: il diametro della maglia è
+$R+C-2$, e nessuno schema di riduzione può consegnare il totale in meno
+passi di quanti ne separino la cella più lontana dalla destinazione.
+Il limite è della topologia, non dello schema.
+Il contributo della cella $(r,c)$ è $r+c$, così che il totale atteso
 si ricavi dalla forma invece di essere scritto a mano. Qui il programma
 \emph{deve} chiedersi se si trova sulla prima colonna, e quell'asimmetria è
-dell'algoritmo e non del bordo: nessun supporto dell'ospite la toglierebbe.
-
-\emph{Verifica}: i risultati parziali di ogni cella, non solo il totale.
+dell'algoritmo e non del bordo: nessun supporto dell'host la toglierebbe.
 
 L'asimmetria si legge nel codice come un salto sulla propria identità: la
 colonna 0 non ha un predecessore da cui leggere, quindi lo salta.
+
+\emph{Verifica}: i risultati parziali di ogni cella, non solo il totale.
 
 \begin{lstlisting}[caption={La prima fase di \texttt{reduce.s}: il salto sulla posizione},label={lst:reduce},language=RISCV,float=htbp]
 _start:
@@ -269,53 +515,69 @@ riga_inizio:
 \begin{figure}[htbp]
     \centering
     \begin{tikzpicture}[
-        cella/.style={draw, rounded corners=1pt, minimum size=1cm, font=\small},
-        ultima/.style={draw, rounded corners=1pt, minimum size=1cm,
-                       font=\small, fill=gray!15},
-        riga/.style={-{Stealth[length=1.6mm]}, gray!70},
-        colonna/.style={-{Stealth[length=2mm]}, thick}
+        cella/.style={draw, rounded corners=1pt, minimum width=2cm,
+                      minimum height=1.25cm, font=\scriptsize, align=center},
+        ultima/.style={cella, fill=gray!15},
+        riga/.style={-{Stealth[length=1.8mm]}, gray!70},
+        colonna/.style={-{Stealth[length=2mm]}, thick},
+        eti/.style={font=\scriptsize, inner sep=1.5pt},
+        puntini/.style={font=\small, fill=white, inner sep=2pt}
     ]
-    \foreach \r in {0,1,2} {
-        \foreach \c in {0,1,2} {
-            \node[cella] (n\r\c) at (\c*1.35, -\r*1.35) {};
-        }
-        \node[ultima] (n\r3) at (3*1.35, -\r*1.35) {};
-    }
-    \foreach \r in {0,1,2} {
-        \foreach \c in {0,1,2} {
-            \pgfmathtruncatemacro{\d}{\c+1}
-            \draw[riga] (n\r\c.east) -- (n\r\d.west);
-        }
-    }
-    \foreach \r in {0,1} {
-        \pgfmathtruncatemacro{\d}{\r+1}
-        \draw[colonna] (n\r3.south) -- (n\d3.north);
-    }
-    \draw[colonna] (n23.south) -- ++(0,-0.75);
-    \node[font=\footnotesize, anchor=north] at (3*1.35, -4.05) {all'ospite};
-    \node[font=\footnotesize, anchor=west] at (4.7, 0) {totali di riga};
+    % prima riga, seconda riga, ultima riga; l'ultima colonna e' quella che raccoglie
+    \node[cella]  (a0) at (0,0)      {$(0,0)$\\ parziale};
+    \node[cella]  (a1) at (2.6,0)    {$(0,1)$\\ parziale};
+    \node[ultima] (a2) at (6.6,0)    {$(0,C-1)$\\ totale};
+    \node[cella]  (b0) at (0,-2)     {$(1,0)$\\ parziale};
+    \node[cella]  (b1) at (2.6,-2)   {$(1,1)$\\ parziale};
+    \node[ultima] (b2) at (6.6,-2)   {$(1,C-1)$\\ totale};
+    \node[cella]  (c0) at (0,-5.4)   {$(R-1,0)$\\ parziale};
+    \node[cella]  (c1) at (2.6,-5.4) {$(R-1,1)$\\ parziale};
+    \node[ultima] (c2) at (6.6,-5.4) {$(R-1,C-1)$\\ totale};
+
+    % ogni riga si somma verso est
+    \draw[riga] (a0.east) -- (a1.west);
+    \node[eti, anchor=south] at (1.3,0.72) {somma parziale};
+    \draw[riga] (b0.east) -- (b1.west);
+    \draw[riga] (c0.east) -- (c1.west);
+    \draw[riga] (a1.east) -- (a2.west);
+    \draw[riga] (b1.east) -- (b2.west);
+    \draw[riga] (c1.east) -- (c2.west);
+    % poi l'ultima colonna somma verso sud, e il totale esce dal bordo
+    \draw[colonna] (a2.south) -- (b2.north);
+    \node[eti, anchor=east] at (5.5,-1) {totale di riga};
+    \draw[colonna] (b2.south) -- (c2.north);
+    \draw[colonna] (c2.south) -- ++(0,-0.8);
+    \node[font=\footnotesize, anchor=north] at (6.6,-6.85) {all'host};
+
+    \foreach \y in {0,-2,-5.4} { \node[puntini] at (4.6,\y) {$\cdots$}; }
+    \foreach \x in {0,2.6,6.6} { \node[puntini] at (\x,-3.7) {$\vdots$}; }
     \end{tikzpicture}
-    \caption{Il percorso a L di \texttt{reduce}: ogni riga si somma verso est,
-             poi l'ultima colonna somma verso sud e il totale esce dal bordo,
-             dove lo raccoglie l'ospite.}
+    \caption{Il percorso a L di \texttt{reduce} su una griglia $R \times C$: ogni
+             riga si somma verso est, poi l'ultima colonna somma verso sud e il
+             totale esce dal bordo, dove lo raccoglie l'host.}
     \label{fig:reduce}
 \end{figure}
 
 \subsection{\texttt{matmul}: scorrono gli operandi}
+\label{sec:kernel-matmul}
 
 Prodotto di matrici $C = A \times B$ su griglia $R \times C$: la cella $(i,j)$
-accumula l'elemento $C[i][j]$ e \textbf{non si muove}. A scorrere sono i dati.
+accumula l'elemento $C[i][j]$ e non si muove. A scorrere sono i dati.
 In $k$ giri ogni cella vede passare esattamente gli operandi del proprio
 prodotto interno, e nient'altro.
 
 
-In un array sistolico in \emph{lockstep} l'ospite \emph{deve} sfasare l'ingresso, consegnando $A[i][k]$
+In un array sistolico in \emph{lockstep}, cioè in cui tutte le celle avanzano al
+passo e ogni dato deve trovarsi al posto giusto al ciclo giusto perché nulla
+segnala il contrario, l'host \emph{deve} sfasare l'ingresso, consegnando $A[i][k]$
 al ciclo $i+k$ e $B[k][j]$ al ciclo $j+k$; altrimenti la cella moltiplica la
-coppia sbagliata e il risultato è sbagliato in silenzio. Qui l'ospite non sfasa
-niente: spinge appena il canale accetta e ritenta quando viene rifiutato. La
-cella si blocca finché non ha \emph{entrambi} gli operandi, e siccome ogni
-canale consegna in ordine, il $k$-esimo valore letto da ovest \emph{è}
-$A[i][k]$. \textbf{La correttezza dunque non dipende più dal tempo.}
+coppia sbagliata e il risultato è sbagliato senza che nulla lo segnali. Qui
+l'host non sfasa niente: spinge appena il canale accetta e ritenta quando
+viene rifiutato. La cella si blocca finché non ha \emph{entrambi} gli operandi,
+e siccome un canale di profondità uno accetta una nuova pubblicazione solo dopo
+che il valore precedente è stato consumato (sezione~\ref{sec:finestra}), i
+valori arrivano nell'ordine in cui sono stati pubblicati e il $k$-esimo valore
+letto da ovest \emph{è} $A[i][k]$. La correttezza dunque non dipende più dal tempo.
 
 \begin{lstlisting}[caption={Un giro di \texttt{matmul.s}: i due operandi si aspettano a vicenda},label={lst:matmul},language=RISCV,float=htbp]
 iterazione:
@@ -327,6 +589,14 @@ iterazione:
     IN      t1, NORD        # b = B[k][j]
     mul     t3, t0, t1
     add     s1, s1, t3      # acc += a * b
+3:  OUT     t0, EST         # a prosegue verso destra
+    SETRDY  t2, EST         # 10a istruzione: qui riparte il vicino
+    beqz    t2, 3b
+4:  OUT     t1, SUD         # b prosegue verso il basso
+    SETRDY  t2, SUD
+    beqz    t2, 4b
+    addi    s2, s2, -1
+    bnez    s2, iterazione  # 16 istruzioni per termine
 \end{lstlisting}
 
 \emph{Verifica}: ogni cella ha il proprio elemento del risultato, con matrici
@@ -335,53 +605,71 @@ cablaggio non passi inosservato.
 
 \begin{figure}[htbp]
     \centering
-    \begin{tikzpicture}[
-        cella/.style={draw, rounded corners=1pt, minimum size=1.15cm,
-                      font=\footnotesize},
-        dato/.style={-{Stealth[length=1.6mm]}, gray!70},
-        ingresso/.style={-{Stealth[length=2mm]}, thick}
+    \scalebox{0.9}{\begin{tikzpicture}[
+        cella/.style={draw, rounded corners=1pt, minimum width=2.1cm,
+                      minimum height=1.25cm, font=\scriptsize, align=center},
+        dato/.style={-{Stealth[length=1.8mm]}, gray!70},
+        ingresso/.style={-{Stealth[length=2mm]}, thick},
+        eti/.style={font=\scriptsize, inner sep=1.5pt},
+        puntini/.style={font=\small, fill=white, inner sep=2pt}
     ]
-    \foreach \r in {0,1,2} {
-        \foreach \c in {0,1,2} {
-            \node[cella] (n\r\c) at (\c*1.5, -\r*1.5) {$C_{\r\c}$};
-        }
+    \node[cella] (a0) at (0,0)      {$(0,0)$\\ $C_{0,0}$};
+    \node[cella] (a1) at (2.7,0)    {$(0,1)$\\ $C_{0,1}$};
+    \node[cella] (a2) at (6.9,0)    {$(0,C-1)$\\ $C_{0,C-1}$};
+    \node[cella] (b0) at (0,-2)     {$(1,0)$\\ $C_{1,0}$};
+    \node[cella] (b1) at (2.7,-2)   {$(1,1)$\\ $C_{1,1}$};
+    \node[cella] (b2) at (6.9,-2)   {$(1,C-1)$\\ $C_{1,C-1}$};
+    \node[cella] (c0) at (0,-5.4)   {$(R-1,0)$\\ $C_{R-1,0}$};
+    \node[cella] (c1) at (2.7,-5.4) {$(R-1,1)$\\ $C_{R-1,1}$};
+    \node[cella] (c2) at (6.9,-5.4) {$(R-1,C-1)$\\ $C_{R-1,C-1}$};
+
+    % gli operandi attraversano: A verso est, B verso sud
+    \foreach \u/\v in {a0/a1, a1/a2, b0/b1, b1/b2, c0/c1, c1/c2} {
+        \draw[dato] (\u.east) -- (\v.west);
     }
-    \foreach \r in {0,1,2} {
-        \foreach \c in {0,1} {
-            \pgfmathtruncatemacro{\d}{\c+1}
-            \draw[dato] (n\r\c.east) -- (n\r\d.west);
-        }
-        \draw[ingresso] ($(n\r0.west) + (-0.9,0)$) -- (n\r0.west);
-        \draw[dato] (n\r2.east) -- ++(0.7,0);
+    \foreach \u/\v in {a0/b0, b0/c0, a1/b1, b1/c1, a2/b2, b2/c2} {
+        \draw[dato] (\u.south) -- (\v.north);
     }
-    \foreach \c in {0,1,2} {
-        \foreach \r in {0,1} {
-            \pgfmathtruncatemacro{\d}{\r+1}
-            \draw[dato] (n\r\c.south) -- (n\d\c.north);
-        }
-        \draw[ingresso] ($(n0\c.north) + (0,0.9)$) -- (n0\c.north);
-        \draw[dato] (n2\c.south) -- ++(0,-0.7);
-    }
-    \node[font=\footnotesize, anchor=east] at (-1.6, -1.5) {righe di $A$};
-    \node[font=\footnotesize, anchor=south] at (1.5, 1.6) {colonne di $B$};
-    \end{tikzpicture}
-    \caption{Il flusso dei dati in \texttt{matmul}: le righe di $A$ entrano da
-             ovest e attraversano la griglia verso est, le colonne di $B$
-             scendono da nord verso sud, l'accumulo resta fermo nella cella.
-             Le uscite a est e a sud sono drenate dall'ospite.}
+    \foreach \n in {a0, b0, c0} { \draw[ingresso] ($(\n.west)+(-0.9,0)$) -- (\n.west); }
+    \foreach \n in {a0, a1, a2} { \draw[ingresso] ($(\n.north)+(0,0.9)$) -- (\n.north); }
+    \foreach \n in {a2, b2, c2} { \draw[dato] (\n.east) -- ++(0.7,0); }
+    \foreach \n in {c0, c1, c2} { \draw[dato] (\n.south) -- ++(0,-0.7); }
+
+    \foreach \y in {0,-2,-5.4} { \node[puntini] at (4.8,\y) {$\cdots$}; }
+    \foreach \x in {0,2.7,6.9} { \node[puntini] at (\x,-3.7) {$\vdots$}; }
+
+    \node[eti, anchor=east] at (-2.05, -2) {righe di $A$};
+    \node[eti, anchor=south] at (2.7, 1.6) {colonne di $B$};
+    \node[eti, anchor=south] at (1.35, 0.72) {$A[0][k]$};
+    \node[eti, anchor=west] at (0.1, -1) {$B[k][0]$};
+    \end{tikzpicture}}
+    \caption{Il flusso dei dati in \texttt{matmul} su una griglia $R \times C$:
+             le righe di $A$ entrano da ovest verso est, le colonne di $B$ da nord
+             verso sud, l'accumulo $C_{rc}$ resta fermo nella cella. Le etichette
+             sono gli operandi che $(0,0)$ inoltra al giro $k$.}
     \label{fig:matmul}
 \end{figure}
 
 \subsection{\texttt{jacobi}}
 \label{sec:kernel-jacobi}
 
-Stencil a cinque punti: ogni cella sostituisce il proprio valore con la media
-dei quattro vicini, un numero fissato di volte. \textbf{Non contiene un solo
-salto condizionato sulla posizione, nemmeno ai margini}: le celle di perimetro
-leggono la condizione al contorno dal canale di bordo come leggerebbero un
-vicino, e pubblicano verso l'esterno come pubblicherebbero verso un vicino.
-Tutte le celle eseguono la stessa identica sequenza di istruzioni. È il
-risultato che l'astrazione del bordo doveva rendere possibile.
+Il metodo di Jacobi è uno dei procedimenti iterativi più noti per la
+risoluzione di sistemi di equazioni lineari, e si esegue normalmente in virgola
+mobile, come del resto la moltiplicazione di matrici della sezione precedente.
+Qui gira su interi con segno a 32 bit, perché l'architettura implementata è la
+sola RV32I, priva tanto dell'unità in virgola mobile quanto dell'estensione M:
+l'aritmetica è dunque un'approssimazione di quella che il metodo richiede. Ciò
+che il programma deve esercitare non è però la convergenza numerica, ma lo
+schema di comunicazione dello stencil a cinque punti, in cui a ogni iterazione
+ogni cella scambia una parola con ciascuno dei quattro vicini ortogonali.
+Quello schema è identico nelle due versioni ed è l'unica proprietà su cui
+poggiano le misure di questo capitolo.
+
+Nel programma ogni cella sostituisce il proprio valore con la media dei quattro vicini,
+un numero fissato di volte. Non contiene un solo salto condizionato sulla posizione, nemmeno ai
+margini: le celle di perimetro leggono dal canale di bordo il valore che l'host vi immette,
+come leggerebbero un vicino, e pubblicano verso l'esterno come pubblicherebbero verso un vicino.
+
 
 A differenza dei tre programmi precedenti lo scambio è simmetrico: ogni vicino è
 insieme sorgente e destinazione, e le dipendenze non hanno più un verso
@@ -405,30 +693,100 @@ iterazione:
     srai    s1, s2, 2
 \end{lstlisting}
 
-Due scelte di questo programma hanno una giustificazione formale.
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        cella/.style={draw, rounded corners=1pt, minimum width=2.3cm,
+                      minimum height=1.25cm, font=\scriptsize, align=center},
+        centro/.style={cella, fill=gray!15},
+        scambio/.style={-{Stealth[length=1.8mm]}, gray!70},
+        eti/.style={font=\scriptsize, inner sep=1.5pt}
+    ]
+    \node[centro] (m) at (0,0)     {$(r,c)$\\ \texttt{s1}};
+    \node[cella]  (n) at (0,2.2)   {$(r-1,c)$\\ \texttt{s1}};
+    \node[cella]  (s) at (0,-2.2)  {$(r+1,c)$\\ \texttt{s1}};
+    \node[cella]  (o) at (-3.6,0)  {$(r,c-1)$\\ \texttt{s1}};
+    \node[cella]  (e) at (3.6,0)   {$(r,c+1)$\\ \texttt{s1}};
 
-\paragraph*{Perché tutte e quattro le pubblicazioni prima di tutte e quattro le
-letture.} È la condizione di assenza di \emph{deadlock} su canali di profondità
-uno. Si supponga per assurdo che tutte
-le celle siano bloccate, e si prenda quella all'iterazione più bassa. Non può
-essere in fase di spedizione, perché aspetterebbe che qualcuno consumi e chi
-consuma sarebbe a una iterazione ancora inferiore, contro la scelta del minimo.
-Deve quindi essere in fase di ricezione. Ma una cella in ricezione ha per
-costruzione già pubblicato tutti e quattro i suoi valori, e i suoi vicini,
-essendo a iterazione maggiore o uguale, hanno anch'essi già pubblicato. Dunque
-ciò che attende c'è già, e non è bloccata: contraddizione. $\square$
+    % due canali per coppia, uno per verso, come nella figura 3.1
+    \draw[scambio] ([xshift=-3mm]m.north) -- ([xshift=-3mm]n.south);
+    \draw[scambio] ([xshift=3mm]n.south)  -- ([xshift=3mm]m.north);
+    \draw[scambio] ([xshift=-3mm]s.north) -- ([xshift=-3mm]m.south);
+    \draw[scambio] ([xshift=3mm]m.south)  -- ([xshift=3mm]s.north);
+    \draw[scambio] ([yshift=3mm]m.west)   -- ([yshift=3mm]o.east);
+    \draw[scambio] ([yshift=-3mm]o.east)  -- ([yshift=-3mm]m.west);
+    \draw[scambio] ([yshift=3mm]e.west)   -- ([yshift=3mm]m.east);
+    \draw[scambio] ([yshift=-3mm]m.east)  -- ([yshift=-3mm]e.west);
 
-\paragraph*{Perché l'arrotondamento e non lo scorrimento secco.} Dividere per
-quattro con uno scorrimento aritmetico tronca, e la troncatura è un
-\textbf{errore sistematico verso il basso} che crea un punto fisso spurio:
-quando i quattro vicini valgono $B-1$ la media troncata resta $B-1$, e il campo
-si ferma \emph{sotto} la soluzione per qualunque numero di iterazioni. Sommando
-due prima dello scorrimento, cioè arrotondando al più vicino, la convergenza è
-esatta. La somma di quattro valori resta rappresentabile fino a contorni
-dell'ordine di $2^{29}$, quindi non c'è rischio di traboccamento.
+    \node[eti, anchor=east] at (-0.45, 1.1) {\texttt{s1} di $(r,c)$};
+    \node[eti, anchor=west] at (0.45, 1.1)  {\texttt{s1} di $(r-1,c)$};
+    \end{tikzpicture}
+    \caption{Lo stencil a cinque punti di \texttt{jacobi}: a ogni iterazione la
+             cella $(r,c)$ pubblica ai quattro vicini ortogonali il proprio
+             valore, che il codice~\ref{lst:jacobi} tiene in \texttt{s1}, e legge
+             i loro. Sul perimetro il vicino mancante è un canale di bordo, che
+             porta il valore immesso dall'host.}
+    \label{fig:jacobi}
+\end{figure}
 
-\emph{Verifica}: il riferimento in C ripete le stesse identiche operazioni su
-interi a 32 bit, quindi il confronto è esatto bit per bit su ogni cella.
+La media dei quattro vicini si calcola senza dividere. RV32I non ha istruzioni
+di divisione, e Jacobi resta deliberatamente dentro RV32I: \texttt{matmul} è
+l'unico dei nove che alzi l'architettura a RV32IM, e lo fa per la sola
+\texttt{mul}. Qui il divisore è quattro, il coefficiente diagonale del
+Laplaciano discreto\footnote{L'approssimazione dell'operatore $\nabla^2$ su una
+griglia regolare: in ogni punto vale la somma dei quattro valori ortogonalmente
+adiacenti, meno quattro volte il valore del punto, divisa per il quadrato del
+passo della griglia. Il quattro che moltiplica il punto centrale è il
+coefficiente diagonale del sistema lineare che ne risulta, e annullare
+l'espressione dà il valore del punto come media dei quattro vicini.}, ed è una
+potenza di due, quindi la divisione
+è uno scorrimento aritmetico di due posizioni, e l'arrotondamento al più vicino
+è la somma di due, cioè di metà divisore, eseguita prima dello scorrimento.
+Sono le due ultime istruzioni del codice~\ref{lst:jacobi}, ed è la stessa
+assenza della divisione che nella sezione~\ref{sec:registri} impone di
+precaricare l'identità della cella anziché ricavarla da un identificatore
+lineare.
+
+L’ordine delle operazioni non è arbitrario. Ogni \texttt{SETRDY} si trova all’interno di
+un ciclo di ritentativo dal quale si esce solo quando l’operazione viene accettata.
+Di conseguenza, quando la riga 8 del codice~\ref{lst:jacobi} esegue il primo \texttt{ISRDY}, i quattro
+valori della cella sono già stati consegnati, e questo vale per ogni cella e per
+ogni iterazione. Questa condizione esclude il \emph{deadlock} su canali di profondità uno:
+se tutte le celle fossero bloccate, quella con l’iterazione più bassa non potrebbe
+essere in spedizione, perché attenderebbe un consumatore a un’iterazione ancora inferiore,
+e dovrebbe quindi essere in ricezione. In tal caso, però, avrebbe già pubblicato i propri
+quattro valori; inoltre, i valori prodotti dalle celle vicine, che si trovano a un’iterazione
+maggiore o uguale, avrebbero fatto altrettanto; ciò che sta attendendo sarebbe dunque già disponibile.
+L'argomento presuppone che l'host consumi i canali di uscita
+di perimetro a ogni ciclo, poiché le celle di bordo pubblicano verso l'esterno
+come verso un vicino: la sezione~\ref{sec:io-bordo} riporta cosa accade
+altrimenti.
+
+La media si arrotonda invece di troncare per un motivo altrettanto preciso. Uno
+scorrimento aritmetico secco tronca, cioè scarta il resto, e lo scarto ha
+sempre lo stesso segno: è un errore per difetto che a ogni iterazione si
+accumula invece di compensarsi. L'effetto non è una piccola imprecisione ma un
+punto fisso spurio, e si vede su una cella adiacente al bordo, dove la somma
+dei quattro vicini non è divisibile per quattro. Con valore di bordo 64 e tre vicini
+già a regime, la somma vale $64 + 64 + 64 + 63 = 255$: troncando si ottiene 63,
+e la cella vi resta per sempre; sommando due prima dello scorrimento si ottiene
+$(255+2) \gg 2 = 64$, e la cella raggiunge la soluzione.
+
+La differenza si ricostruisce a mano su una griglia $1\times2$ con valore di
+bordo 64 e le due celle inizializzate a zero, dove per simmetria valgono sempre
+lo stesso. La successione troncata è $0, 48, 60, 63, 63, \dots$ e si ferma
+\emph{sotto} la soluzione per qualunque numero di iterazioni; quella arrotondata
+è $0, 48, 60, 63, 64, 64, \dots$ e converge esatta. La somma di quattro valori
+resta rappresentabile fino a contorni dell'ordine di $2^{29}$, quindi
+l'addizione non introduce un traboccamento.
+
+\emph{Verifica}: il riferimento in C non modella lo stencil, ma esegue la stessa
+espressione sugli stessi tipi, cioè $(n + s + e + o + 2) \gg 2$ su interi con
+segno a 32 bit. Il confronto è perciò esatto bit per bit: l'asserzione è una
+uguaglianza fra parole di 32 bit, cella per cella, e non un confronto entro una
+tolleranza. Non esiste quindi una differenza di arrotondamento che possa
+restare sotto una soglia, perché nessuna soglia c'è: o le due esecuzioni
+producono le stesse parole, o la verifica fallisce.
 
 \subsection{\texttt{pesante}: il carico regolabile}
 \label{sec:kernel-pesante}
@@ -444,7 +802,9 @@ La comunicazione è identica a quella di Jacobi, quattro \texttt{OUT} verso i
 vicini seguite da quattro \texttt{IN}, e ne eredita per intero l'argomento di
 assenza di deadlock. Cambia solo ciò che accade fra la raccolta dei vicini e
 l'iterazione successiva: al posto della media, \texttt{PESO} round di
-mescolamento sulla loro somma, nove istruzioni ciascuno. A \texttt{PESO} $= 32$
+mescolamento sulla loro somma, nove istruzioni ciascuno. Le due costanti di
+compilazione del programma sono quindi \texttt{PESO}, che regola il calcolo per
+comunicazione, e \texttt{ITER}, che è il numero di iterazioni eseguite. A \texttt{PESO} $= 32$
 sono 288 istruzioni di calcolo contro le 16 di canale, mentre Jacobi ne ha 6
 contro 16.
 
@@ -458,7 +818,7 @@ mescola:
     xor     s1, s1, t3
     slli    t3, s1, 5
     xor     s1, s1, t3
-    add     s1, s1, t4      # dispari: lo zero non resta zero
+    add     s1, s1, t4      # t4: costante dispari, lo zero non resta zero
     addi    t2, t2, -1
     bnez    t2, mescola
 \end{lstlisting}
@@ -468,82 +828,112 @@ per tre proprietà simultanee. Sta in RV32I, perché usa solo scorrimenti,
 \texttt{xor} e somme, quindi non richiede l'estensione M. È deterministico bit
 per bit, quindi il riferimento in C non modella il kernel ma ripete le stesse
 operazioni sugli stessi \texttt{uint32\_t}, e l'asserzione resta esatta come per
-tutti gli altri programmi. E la costante additiva dispari impedisce che lo zero
-resti zero: senza, una griglia inizializzata a zero con contorno zero non si
+tutti gli altri programmi, nel senso definito nella
+sezione~\ref{sec:kernel-jacobi}. La costante additiva dispari impedisce che lo zero
+resti zero: senza di essa una griglia inizializzata a zero e con valore di bordo zero non si
 muoverebbe mai, che è lo stesso punto fisso spurio che Jacobi evita con
 l'arrotondamento, in altra forma.
 
-Un dato lo distingue da ogni altro programma della serie: \emph{ritentativi} e
-\emph{attese} valgono \textbf{zero su tutte le forme}. Tutte le celle eseguono
-lo stesso numero di istruzioni fra due comunicazioni, quindi restano in
-\emph{lockstep} e nessuna trova mai un canale nello stato sbagliato. È il
-profilo di comunicazione più regolare che l'array possa avere, ed è la
-condizione che isola il costo della parallelizzazione dal costo dell'attesa
-attiva. \emph{Verifica}: il campo finale coincide con l'iterato
+Come \texttt{jacobi}, e a differenza degli altri sette programmi,
+\texttt{pesante} ha \emph{ritentativi} e \emph{attese} nulli su tutte le forme:
+tutte le celle eseguono lo stesso numero di istruzioni fra due comunicazioni,
+quindi restano in \emph{lockstep} e nessuna trova mai un canale nello stato
+sbagliato. A distinguerlo è che quel valore nullo si conserva mentre
+\texttt{PESO} fa variare di trentadue volte le istruzioni di calcolo per ogni
+comunicazione. Il profilo di comunicazione resta cioè il più regolare che
+l'array possa avere, qualunque sia l'intensità di calcolo, ed è proprio questa
+invarianza che permette alla sezione~\ref{sec:pareggio} di attribuire alla sola
+dimensione della griglia ciò che misura, senza che il costo dell'attesa attiva
+si confonda con quello della parallelizzazione.
+
+\emph{Verifica}: il campo finale coincide con l'iterato
 $\mathtt{ITER}$-esimo del riferimento, cella per cella.
 
 \section{Il risultato principale: con e senza \emph{ready bit}}
 \label{sec:nobp}
 
-Per misurare il contributo dell'\emph{handshake} serve un termine di paragone.
-Una modalità di compilazione degrada il canale a un semplice registro senza
-\emph{handshake}: la pubblicazione sovrascrive anche uno slot non ancora letto,
-\texttt{SETRDY} non fallisce mai e \texttt{ISRDY} risponde sempre di sì. Il
-doppio buffer resta, quindi fra le due modalità \textbf{cambia solo il controllo
-di flusso}: latenza per salto e ordine di visibilità restano identici. È il
-sistolico in \emph{lockstep} puro che il \emph{ready bit} sostituisce.
+Per isolare il contributo del \emph{ready bit}, si confrontano due modalità
+che differiscono solo per il controllo di flusso del canale. Una modalità 
+di compilazione, attivata dalla variabile \texttt{NOBP}, degrada il canale a un 
+semplice registro privo di \emph{ready bit}: la pubblicazione sovrascrive anche
+uno slot non ancora letto, \texttt{SETRDY} non fallisce mai e \texttt{ISRDY} 
+risponde sempre di sì. Il doppio buffer resta, quindi fra le due modalità cambia 
+solo il controllo di flusso: latenza per attraversamento e ordine di visibilità restano identici.
 
-Le due modalità sono messe a confronto sullo stesso programma e sullo stesso
-sweep nella tabella~\ref{tab:nobp}.
+
+Le due modalità sono messe a confronto sullo stesso programma, \texttt{prodcons}
+su griglia $1\times2$, e sullo stesso sweep dei sei ritardi del consumatore,
+nella tabella~\ref{tab:nobp}.
 
 \begin{table}[htbp]
     \centering
     \begin{tabular}{rcrr}
         \toprule
-        ritardo & \emph{handshake} & cicli & somma \\
+        ritardo & \emph{ready bit} & cicli & somma letta \\
         \midrule
-        0  & sì & 45  & \textbf{15} \\
-        0  & no & 37  & \textbf{15} \\
-        1  & sì & 52  & \textbf{15} \\
-        1  & no & 52  & \textbf{18} \\
-        4  & sì & 82  & \textbf{15} \\
-        4  & no & 82  & \textbf{22} \\
-        8  & sì & 122 & \textbf{15} \\
-        8  & no & 122 & \textbf{24} \\
-        25 & sì & 292 & \textbf{15} \\
-        25 & no & 292 & \textbf{25} \\
-        60 & sì & 642 & \textbf{15} \\
-        60 & no & 642 & \textbf{25} \\
+        0  & sì & 45  & 15 \\
+        0  & no & 37  & 15 \\
+        1  & sì & 52  & 15 \\
+        1  & no & 52  & 18 \\
+        4  & sì & 82  & 15 \\
+        4  & no & 82  & 22 \\
+        8  & sì & 122 & 15 \\
+        8  & no & 122 & 24 \\
+        25 & sì & 292 & 15 \\
+        25 & no & 292 & 25 \\
+        60 & sì & 642 & 15 \\
+        60 & no & 642 & 25 \\
         \bottomrule
     \end{tabular}
-    \caption{Produttore e consumatore con e senza \emph{ready bit}. La somma
-             corretta è $Q(Q+1)/2 = 15$ per ogni valore del ritardo.}
+    \caption{\texttt{prodcons} con e senza \emph{ready bit}, al variare del ritardo
+         del consumatore. La somma letta è il totale che il consumatore
+         accumula sui $Q = 5$ valori inviati dal produttore: vale
+         $Q(Q+1)/2 = 15$ se e solo se nessun valore è andato perso o è stato
+         letto due volte.}
     \label{tab:nobp}
 \end{table}
 
 Il confronto isola tre effetti.
 
 \begin{enumerate}
-    \item \textbf{Con il \emph{ready bit} la somma è 15 sempre}, per ogni valore
-          del ritardo e, nelle righe della catena, per ogni lunghezza da 2 a
-          12 colonne. Il risultato non dipende né dalla velocità relativa dei
-          nodi né dalla topologia.
-    \item \textbf{Senza, si perdono dati in silenzio.} Con ritardo 25 e 60 la
-          somma è 25, cioè $5+5+5+5+5$: il consumatore è così lento da vedere
-          cinque volte l'ultimo valore. Nessun errore, nessun avviso, solo un
-          risultato sbagliato.
-    \item \textbf{Il costo in cicli della garanzia è nullo.} Da ritardo 1 in poi
-          le due modalità impiegano esattamente lo stesso numero di cicli: il
-          tempo lo consuma il consumatore lento e non il protocollo. Solo con
-          ritardo 0 il \emph{lockstep} risparmia 8 cicli su 45, ed è anche
-          l'unica configurazione in cui non perde dati, perché è la sola in cui
-          il consumatore è più veloce del produttore.
+    \item Con il \emph{ready bit} la somma vale 15 su ogni riga, per ogni valore
+          del ritardo. Il risultato è cioè indipendente dalla velocità relativa
+          dei due nodi, che è la grandezza fatta variare; la verifica di
+          \texttt{chain} nella sezione~\ref{sec:kernel} estende la stessa
+          conclusione alla lunghezza della catena.
+    \item Senza, alcuni valori non vengono letti mai e altri più volte, e
+          nessuno lo segnala. Con ritardo 1 la somma è 18 invece di 15, cioè
+          più del dovuto: il consumatore rilegge un valore che aveva già preso,
+          perché come si è visto nella sezione~\ref{sec:istruzioni} la lettura
+          di un canale vuoto restituisce il precedente. Con ritardo 25 e 60 la
+          somma è 25, cioè $5+5+5+5+5$, perché il consumatore è così lento da
+          vedere cinque volte l'ultimo valore e da non vedere mai gli altri
+          quattro. Perdita e duplicazione sono le due facce della stessa
+          assenza di controllo di flusso, e non c'è alcun errore né alcun
+          avviso: l'unica traccia è il risultato sbagliato.
+    \item Il costo in cicli della garanzia è nullo per ogni ritardo maggiore di
+          zero: le due modalità impiegano esattamente lo stesso numero di
+          cicli, perché il tempo lo consuma il consumatore lento e non il
+          protocollo. A ritardo zero il \emph{lockstep} risparmia 8 cicli su
+          45, cioè il 18\,\%, ed è anche l'unica configurazione in cui non
+          perde dati, perché è la sola in cui il consumatore è più veloce del
+          produttore. L'unico caso in cui il \emph{ready bit} costa qualcosa è
+          dunque quello in cui non serve.
 \end{enumerate}
 
 \section{Scalabilità}
 \label{sec:scalabilita}
 
+La sezione misura come il costo del array simulao cresca con la dimensione della griglia,lavorando su
+due programmi che rappresentano i due regimi opposti. Il prodotto di matrici è
+limitato dall'ingresso-uscita, perché ogni operando che una cella consuma deve
+entrare dal perimetro; lo stencil di Jacobi è limitato dal calcolo, perché
+dopo l'inizializzazione ogni cella scambia solo con i quattro vicini. Le prime
+due sottosezioni ricavano da ciascuno la legge di costo misurata, la terza
+affronta il caso $1\times1$, che sembra contraddire la seconda.
+
 \subsection{Il prodotto di matrici}
+\label{sec:matmul-scala}
 
 Il costo misurato segue esattamente
 \[
@@ -551,33 +941,43 @@ Il costo misurato segue esattamente
 \]
 su tutte le righe dello sweep: 19 cicli per $k=1$ su $1\times1$, 115 per $k=7$
 su $1\times1$, 239 per $k=1$ su $12\times12$, 335 per $k=7$ su $12\times12$.
-\textbf{Il numero di celle non compare nella formula}: compaiono solo $k$, cioè
+Il numero di celle non compare nella formula: compaiono solo $k$, cioè
 la lunghezza del prodotto interno, e $R+C-2$, cioè il riempimento della
-pipeline, che è la distanza dell'ultima cella dall'angolo. Un array
-$12 \times 12$ calcola 144 prodotti interni nello stesso tempo in cui un
-$1\times1$ ne calcola uno, più il riempimento: è la scalabilità di un array
-sistolico nella sua definizione, qui misurata su ventuno configurazioni. Le tre
-costanti dipendono dalla lunghezza del ciclo del programma e vanno rimisurate se
-il programma cambia.
+pipeline, che è la distanza dell'ultima cella dall'angolo. Un array \(12 \times 12\)
+calcola 144 prodotti interni nello stesso tempo in cui un \(1 \times 1\) ne calcola
+uno, a meno del riempimento. Il risultato mostra la scalabilità propria di un array
+sistolico, qui verificata su ventuno configurazioni.
+
+
+Le tre costanti si leggono sul codice~\ref{lst:matmul} e vanno rimisurate se il
+programma cambia. Il 19 è il prologo più la terminazione; il 16 è il corpo di
+una iterazione, cioè le istruzioni che la cella esegue per ogni termine del
+prodotto interno; il 10 è il passo di propagazione, cioè il costo con cui il
+fronte dei dati avanza di una cella. Che 10 sia minore di 16 non è una
+contraddizione ed è anzi ciò che rende l'array una pipeline: la \texttt{SETRDY}
+che inoltra $A$ verso est è la decima istruzione dell'iterazione, quindi il
+vicino può ripartire prima che la cella abbia finito il proprio giro, e le sei
+istruzioni restanti si sovrappongono al lavoro di chi sta a valle.
 
 \subsection{Lo stencil di Jacobi}
 
-Su \textbf{tutte} le forme, da $1\times1$ a
-$12\times12$: 4227 cicli, zero ritentativi, zero attese. Il valore si ricostruisce
-esattamente, 33 istruzioni per iterazione per 128 iterazioni più due di prologo
-e la terminazione, e non compare \emph{un solo} giro di attesa. Il
-programma è perfettamente uniforme, tutte le celle avanzano in fase e ogni test
-trova il dato già pronto: è il caso in cui il \emph{ready bit} non costa nulla e
-serve solo come garanzia. Il numero di valori usciti dal perimetro è
-$2(R+C) \cdot 128$ esatto su ogni riga, cioè 6144 su $12\times12$: niente perso
-e niente duplicato al bordo.
+Su tutte le forme, da $1\times1$ a $12\times12$, il risultato è lo stesso: 
+4227 cicli, zero ritentativi, zero attese. Il valore si ricostruisce
+esattamente, con 33 istruzioni per iterazione per 128 iterazioni, più due
+cicli per il prologo e la terminazione. Il
+programma è perfettamente uniforme: tutte le celle avanzano in fase e ogni
+test trova il dato già pronto. In queste condizioni il \emph{ready bit} non
+introduce alcun costo e svolge soltanto una funzione di garanzia. Il numero di 
+valori usciti dal perimetro è esattamente $2(R+C)\cdot128$ su ogni riga, cioè 6144
+su $12\times12$: niente viene perso e niente viene duplicato al bordo.
 
-Il campo finale è un punto fisso e non semplicemente l'ultimo iterato calcolato:
-la variazione massima all'ultima iterazione è nulla su tutte e quattordici le
-righe dello sweep. L'iterazione in cui il campo smette di cambiare dipende dalla
-forma e dal campo iniziale, e resta ampiamente sotto le 128 iterazioni eseguite.
+Il campo finale è un punto fisso e non semplicemente l'ultimo iterato calcolato: 
+la variazione massima all'ultima iterazione è nulla su tutte le quattordici 
+righe dello sweep. L'iterazione in cui il campo smette di cambiare dipende dalla forma e dal
+campo iniziale, come mostra per ogni caso la tabella~\ref{tab:convergenza}, e
+resta ampiamente sotto le 128 iterazioni eseguite.
 
-\begin{table}[htbp]
+\begin{table}[!ht]
     \centering
     \begin{tabular}{lrrr}
         \toprule
@@ -593,69 +993,92 @@ forma e dal campo iniziale, e resta ampiamente sotto le 128 iterazioni eseguite.
         \bottomrule
     \end{tabular}
     \caption{Iterazione di convergenza dello stencil per i due campi iniziali,
-             con 128 iterazioni eseguite e contorno costante 64}
+             con 128 iterazioni eseguite e valore di bordo costante 64}
     \label{tab:convergenza}
 \end{table}
 
-Le due colonne coincidono su $1\times1$, $1\times6$, $6\times1$ e $4\times4$, e
-differiscono su $3\times4$, $8\times8$ e $12\times12$: sulle griglie maggiori il
-campo iniziale $r+c$ converge qualche iterazione prima di quello a zero, 75
-contro 82 su $12\times12$.
+Le iterazioni di convergenza dei due campi iniziali coincidono su $1\times1$, 
+$1\times6$, $6\times1$ e $4\times4$, mentre differiscono su tre forme su sette: 
+$3\times4$, $8\times8$ e $12\times12$. In tutti e tre i casi il campo iniziale 
+$r+c$ converge qualche iterazione prima di quello a zero, con una differenza di 
+sette iterazioni su $12\times12$: 75 contro 82. La differenza non cresce con la 
+dimensione: $3\times4$ presenta una differenza, mentre $4\times4$, pur avendo 
+più celle, non la presenta.
 
 \subsection{Il caso $1\times1$}
+\label{sec:unoxuno}
 
-La riga $1\times1$ non è un
-array che calcola: con una sola cella i cicli di cablaggio dei vicini non
-girano nemmeno una volta e tutti e quattro gli ingressi finiscono sui canali di
-bordo. Quella cella legge il contorno da tutte le direzioni e converge in una
-iterazione, e l'ospite sostiene il 100\,\% della comunicazione.
-Il confronto ``$1\times1$ contro $12\times12$ a parità di cicli''
-è quindi il più sfavorevole possibile per l'array, e va riformulato sul rapporto
-fra perimetro e area, che la tabella~\ref{tab:perimetro} riporta per quattro
+Su $1\times1$ lo stencil costa gli stessi 4227 cicli di $12\times12$: le altre
+143 celle non riducono il numero di cicli. Il confronto a parità di cicli è
+però mal posto.
+
+La riga $1\times1$ non è un array che calcola: con una sola cella i cicli di
+cablaggio dei vicini non girano nemmeno una volta e tutti e quattro gli
+ingressi finiscono sui canali di bordo. Quella cella legge il valore di bordo da tutte
+le direzioni e converge in una iterazione, e l'host sostiene il 100\,\% della
+comunicazione. A parità di cicli si paragona quindi una griglia che non usa
+affatto il proprio cablaggio con una che lo usa per intero, che è il caso più
+sfavorevole possibile per l'array. Il paragone pertinente è il rapporto fra
+perimetro e area, riportato nella tabella~\ref{tab:perimetro} per quattro
 forme.
 
 \begin{table}[htbp]
     \centering
     \begin{tabular}{lrrr}
         \toprule
-        forma & canali di ingresso & di cui di bordo & quota a carico dell'ospite \\
+        forma & canali di ingresso & di cui di bordo & quota a carico dell'host \\
         \midrule
-        $1\times1$    & 4   & 4  & \textbf{100\,\%} \\
+        $1\times1$    & 4   & 4  & 100\,\% \\
         $4\times4$    & 64  & 16 & 25\,\% \\
         $8\times8$    & 256 & 32 & 12,5\,\% \\
-        $12\times12$  & 576 & 48 & \textbf{8,3\,\%} \\
+        $12\times12$  & 576 & 48 & 8,3\,\% \\
         \bottomrule
     \end{tabular}
-    \caption{Frazione di comunicazione a carico dell'ospite}
+    \caption{Frazione di comunicazione a carico dell'host}
     \label{tab:perimetro}
 \end{table}
 
-La quota vale $(R+C)/(2RC)$ e \textbf{tende a zero}: più l'array è grande, più è
-autosufficiente. Il confronto corretto è quindi fra perimetro e area, non fra due
-griglie a parità di cicli.
+La quota vale $(R+C)/(2RC)$ e tende a zero: più l'array è grande, più diventa autosufficiente.
+Il confronto a parità di cicli non rende visibile questa tendenza.
 
 Due costi non compaiono nella colonna dei cicli. Il primo è il lavoro
-dell'ospite, che è codice C fuori dall'array simulato: cresce come $O(R+C)$,
+dell'host, che è codice C fuori dall'array simulato: cresce come $O(R+C)$,
 cioè più lentamente del lavoro utile, ma è lavoro reale che non viene contato.
-Il secondo è che in hardware quel costo si chiama \textbf{banda di
-ingresso-uscita}: i piedini stanno sul perimetro e crescono come $R+C$, le unità
+Il secondo è che in hardware quel costo si chiama banda di ingresso-uscita: i
+piedini stanno sul perimetro e crescono come $R+C$, le unità
 di calcolo come $R \cdot C$, ed è il limite noto degli array
-sistolici~\cite{KungLeiserson}. Il simulatore non lo espone, perché l'ospite non
+sistolici~\cite{KungLeiserson}. Il simulatore non lo espone, perché l'host non
 ha un costo di banda; se ne misura l'effetto nel prodotto di matrici, l'unico
-programma in cui una spinta dell'ospite viene effettivamente rifiutata. A parità
+programma il cui ambiente di verifica ritenta le spinte respinte e le conta,
+mentre negli altri l'alimentazione del bordo le scarta. A parità
 di prodotto interno, con $k=7$, le spinte respinte passano da 161 su $1\times1$
 a 3252 su $12\times12$, cioè crescono di venti volte mentre le celle crescono di
-centoquarantaquattro. I due programmi coprono i due regimi: Jacobi limitato dal
+centoquarantaquattro. Il confronto va letto con una avvertenza: le spinte
+respinte contano i tentativi di un host che sonda a ogni ciclo, quindi
+crescono anche con il prodotto fra canali di bordo e cicli, che fra le due
+forme aumenta di circa trentacinque volte. Che ne crescano venti e non
+trentacinque è il segno che la pressione sul perimetro cresce più lentamente
+della frequenza di sondaggio. I due programmi coprono i due regimi: Jacobi limitato dal
 calcolo, il prodotto di matrici limitato dall'ingresso-uscita.
 
 \section{Le altre misure}
 \label{sec:altre-misure}
 
+Due misure minori completano il quadro, e in entrambe l'interesse sta in un
+valore inatteso. La prima confronta due forme con lo stesso numero di celle e
+mostra che la topologia da sola non basta a prevedere il costo; la seconda
+riguarda i programmi in cui i ritentativi sono nulli, e serve a distinguere
+l'attesa che misura una latenza da quella che misura una contesa.
+
+\clearpage
 \subsection{Forma della griglia}
 
-Le forme $1\times6$ e $6\times1$ hanno lo stesso numero di celle e costi
-diversi in tutti e tre i programmi che le attraversano, ma \textbf{il segno
-della differenza non è lo stesso}.
+Tutti e cinque i programmi dello sweep girano su $1\times6$ e su $6\times1$, che
+hanno lo stesso numero di celle, ma solo tre danno costi diversi sulle due
+forme, e il segno della differenza non è lo stesso nei tre. Gli altri due sono
+insensibili alla disposizione: la formula della
+sezione~\ref{sec:matmul-scala} dipende dal solo $R+C-2$, che vale 5 in entrambi
+i casi, e lo stencil costa 4227 cicli su tutte e sette le forme.
 
 \begin{table}[htbp]
     \centering
@@ -665,12 +1088,14 @@ della differenza non è lo stesso}.
         \cmidrule(lr){2-3}\cmidrule(lr){4-5}
         programma & cicli & attese & cicli & attese \\
         \midrule
-        \texttt{bordo}     & \textbf{9}  & 6  & 39 & 51 \\
-        \texttt{broadcast} & \textbf{40} & 25 & 68 & 50 \\
-        \texttt{reduce}    & 49 & 50 & \textbf{39} & 35 \\
+        \texttt{bordo}     & 9  & 6  & 39 & 51 \\
+        \texttt{broadcast} & 40 & 25 & 68 & 50 \\
+        \texttt{reduce}    & 49 & 50 & 39 & 35 \\
         \bottomrule
     \end{tabular}
-    \caption{Le stesse sei celle disposte nei due modi}
+    \caption[Le stesse sei celle disposte nei due modi]{Le stesse sei celle
+             disposte nei due modi. La forma più economica è $1\times6$ nelle
+             prime due righe e $6\times1$ nella terza.}
     \label{tab:forma}
 \end{table}
 
@@ -678,7 +1103,7 @@ In \texttt{bordo} il dato scende da nord a sud, quindi $1\times6$ sono sei
 catene indipendenti di una cella, alimentate tutte nello stesso ciclo, mentre
 $6\times1$ è una catena sola profonda sei, e il costo è quello della catena.
 
-In \texttt{broadcast} il dato percorre in entrambi i casi cinque salti, ma la
+In \texttt{broadcast} il dato compie in entrambi i casi cinque passi di propagazione, ma la
 ritrasmissione pubblica verso est prima che verso sud, in quest'ordine e con due
 cicli di ritentativo distinti. Su $1\times6$ la propagazione avviene sulla
 direzione pubblicata per prima e ogni cella la inoltra appena l'ha ricevuta; su
@@ -688,28 +1113,33 @@ bordo non serve a nessuno, e solo dopo comincia quella che fa avanzare l'onda.
 In \texttt{reduce} il verso si inverte, e la ragione è l'asimmetria del
 codice~\ref{lst:reduce}: su $6\times1$ ogni cella è in colonna 0, quindi tutte
 saltano la lettura da ovest e la prima fase costa zero; su $1\times6$ nessuna la
-salta. Il numero di salti è cinque in entrambi i casi, ma il codice percorso per
-salto no.
-
-Le tre righe misurano quindi la topologia e l'ordine delle operazioni del
-programma, non la sola dimensione della griglia.
+salta. I passi sono cinque in entrambi i casi, ma il codice percorso per
+ciascuno no. Le tre righe misurano quindi la topologia e l'ordine delle operazioni del
+programma, non la sola dimensione della griglia.\looseness=2
 
 \subsection{Dove non c'è contesa}
 
 Nei programmi di diffusione e di riduzione i
-ritentativi sono zero su ogni forma: ogni cella pubblica una volta sola e c'è
+ritentativi sono zero su ogni forma: ogni cella pubblica ciascun valore una volta sola e c'è
 sempre qualcuno pronto a consumare. Le attese crescono con la forma perché
-rispecchiano la \textbf{latenza di propagazione} e non una contesa: le 4477
+rispecchiano la latenza di propagazione e non una contesa: le 4477
 attese della diffusione su $12\times12$ sono il tempo che le celle passano a
 interrogare un canale ancora vuoto mentre l'onda le raggiunge, e la cella
-$(11,11)$, l'ultima servita, è a $r+c = 22$ salti dalla sorgente. Il valore
+$(11,11)$, l'ultima servita, è a $r+c = 22$ passi di propagazione dalla sorgente. Il valore
 nullo dei ritentativi misura
 che in questi due programmi il canale non è mai il collo di bottiglia.
 
 \section{Prestazioni del simulatore}
 \label{sec:prestazioni}
 
-Le misure che seguono riguardano il simulatore e non l'array simulato.
+Le misure che seguono riguardano il simulatore e non l'array simulato, e sono
+quindi tempi in secondi e non conteggi di cicli. Si procede per gradi: prima il
+costo di una istruzione simulata su un solo processore, poi il costo delle due
+regioni parallele confrontato con il lavoro che hanno da distribuire, poi la
+misura diretta della dimensione di griglia oltre la quale il parallelismo
+comincia a rendere. Le ultime due sottosezioni isolano i due limiti che restano
+una volta chiarito quel punto, cioè la località in memoria e il determinismo
+del risultato.
 
 \subsection{Il caso seriale}
 
@@ -717,11 +1147,12 @@ La tabella~\ref{tab:seriale} riporta il costo di una istruzione simulata su una
 griglia $64\times64$, per un totale di 17,3 milioni di istruzioni.
 
 Le stampe di traccia erano il 58\,\% del tempo e la compilazione non passava
-alcun flag di ottimizzazione: \textbf{3,5$\times$ seriali prima ancora di
-toccare il parallelismo}. È una precondizione della misura di parallelismo che
-segue: una stampa prende il lock dello standard output anche scrivendo verso il
-nulla, quindi con la traccia accesa si misurerebbe la contesa su quel lock e non
-il parallelismo.
+alcun flag di ottimizzazione: togliere le une e aggiungere l'altro vale
+3,5$\times$ prima ancora di toccare il parallelismo. La prima delle due
+correzioni non è solo un guadagno, ma una precondizione della misura di
+parallelismo che segue, perché una stampa prende il lock dello standard output
+anche scrivendo verso il nulla: con la traccia accesa si misurerebbe la contesa
+su quel lock e non il parallelismo.
 
 \begin{table}[htbp]
     \centering
@@ -731,14 +1162,20 @@ il parallelismo.
         \midrule
         versione iniziale & 2,12 s & 122 \\
         senza la traccia per istruzione & 0,90 s & 52 \\
-        senza traccia, con \texttt{-O2} & \textbf{0,61 s} & \textbf{35} \\
+        senza traccia, con \texttt{-O2} & 0,61 s & 35 \\
         \bottomrule
     \end{tabular}
-    \caption[Costo di una istruzione simulata]{Costo di una istruzione simulata. È l'unica misura del capitolo che
-             non sia rigenerabile con i comandi descritti nella
-             sezione~\ref{sec:metodologia}, perché confronta tre stadi
-             successivi del simulatore e le due varianti precedenti non fanno
-             parte del codice consegnato.}
+    \caption[Costo di una istruzione simulata]{Costo di una istruzione simulata. È una delle quattro misure del
+             capitolo che non si rigenerano con i comandi descritti nella
+             sezione~\ref{sec:metodologia}, insieme al costo di apertura di una
+             regione parallela, allo sweep di controllo a parità di cicli e
+             alla ricompilazione con memoria privata ridotta: qui la ragione è
+             che il confronto è fra tre stadi successivi del simulatore, e le
+             due varianti precedenti non fanno parte del codice consegnato. I 35\,ns della terza riga non sono
+             direttamente confrontabili con i 28,5\,ns che la
+             tabella~\ref{tab:memoria} riporta per la stessa forma: quella
+             misura scala il numero di iterazioni per forma e viene da una
+             sessione diversa.}
     \label{tab:seriale}
 \end{table}
 
@@ -747,10 +1184,11 @@ il parallelismo.
 
 Il costo di apertura di una regione parallela,
 misurato sulla macchina di sviluppo, è di 3,87\,$\mu$s con due
-thread e 13,89 con sedici, e il ciclo di clock ne apre due per passo. La
-tabella~\ref{tab:crossover} confronta quel costo, misurato a otto thread e
-comprensivo della distribuzione delle iterazioni, per cui cresce con la griglia,
-con il lavoro di un ciclo, e colloca il pareggio previsto.
+thread e 13,89\,$\mu$s con sedici, e il ciclo di clock ne apre due per passo. La
+tabella~\ref{tab:crossover} confronta quel costo con il lavoro di un ciclo e
+colloca il pareggio previsto; il costo delle due regioni, misurato a otto
+thread, è comprensivo della distribuzione delle iterazioni, per cui cresce con
+la griglia.
 
 \begin{table}[htbp]
     \centering
@@ -758,61 +1196,113 @@ con il lavoro di un ciclo, e colloca il pareggio previsto.
         \toprule
         griglia & lavoro per ciclo & due regioni, 8 thread & rapporto atteso \\
         \midrule
-        $12\times12$   & 5,0 $\mu$s  & 18,1 $\mu$s & \textbf{0,3$\times$} \\
+        $12\times12$   & 5,0 $\mu$s  & 18,1 $\mu$s & 0,3$\times$ \\
         $32\times32$   & 35,8 $\mu$s & 21,9 $\mu$s & 1,6$\times$ \\
         $64\times64$   & 143 $\mu$s  & 35,4 $\mu$s & 4,1$\times$ \\
         $128\times128$ & 573 $\mu$s  & 89,1 $\mu$s & 6,4$\times$ \\
         \bottomrule
     \end{tabular}
-    \caption{Il pareggio previsto fra lavoro per ciclo e costo delle regioni
-             parallele. È una previsione e non una
+    \caption[Il pareggio previsto]{Il pareggio previsto fra lavoro per ciclo e
+             costo delle regioni parallele. L'ultima colonna è il rapporto fra
+             le due grandezze e non lo speedup atteso, che a $p$ thread vale
+             $W/(W/p + O)$: come indicatore del pareggio il rapporto è
+             sufficiente, ma il pareggio cade dove vale $8/7$ e non dove vale
+             uno. È inoltre una previsione e non una
              misura: il lavoro per ciclo è estrapolato dal costo di una
              istruzione simulata e il costo delle regioni parallele viene da un
-             micro-benchmark eseguito una volta sola. Il pareggio misurato è
-             nella sezione~\ref{sec:pareggio}.}
+             micro-benchmark eseguito una volta sola. L'estrapolazione assume
+             quel costo costante a 35\,ns, mentre la
+             sezione~\ref{sec:memoria} lo misura variare da 15,9 a 83,4\,ns con
+             la dimensione della griglia, ed è questa assunzione a spostare la
+             previsione, come mostra il testo. Il pareggio misurato è nella
+             sezione~\ref{sec:pareggio}.}
     \label{tab:crossover}
 \end{table}
 
 La previsione colloca il pareggio intorno a $24\times24$, mentre le forme dello
-sweep arrivano a $12\times12$: \textbf{tutte le griglie della suite cadono al di
-sotto del pareggio}. La misura reale è inoltre peggiore della previsione: su
+sweep arrivano a $12\times12$: tutte le griglie della suite cadono quindi al di
+sotto del pareggio, e su tutte ci si deve attendere una perdita. La misura
+reale è inoltre peggiore della previsione: su
 $12\times12$ lo stencil di Jacobi passa da 0,0137\,s con un thread a 0,0780\,s
 con otto, cioè va quasi sei volte più lento invece di tre. Il risultato è quello
 atteso su griglie di questa dimensione: il lavoro di un ciclo è più piccolo del
 costo delle due barriere. La verifica sperimentale della previsione è nella
 sezione~\ref{sec:pareggio}.
 
-Lo scarto fra 0,3$\times$ previsto e 0,18$\times$ misurato ha una causa che il
-modello analitico non include. La struttura del canale occupa 16 byte, quindi i
-quattro canali di uscita di una cella occupano \textbf{esattamente 64 byte, una
-linea di cache}. Su quella linea scrivono a ogni ciclo fino a cinque thread: il
-proprietario, per i suoi quattro canali, e i quattro vicini, per il contatore di
-lettura. È un caso di \emph{false sharing}. Il rimedio è spostare il contatore
-di lettura nella cella consumatrice, che è \textbf{la stessa modifica che
-suggerisce il modello hardware}, dove quel flip-flop starebbe fisicamente nel
-consumatore: due criteri indipendenti, uno di prestazioni e uno di fedeltà,
-indicano la stessa modifica. Lo spostamento non costa area, perché il numero di
-flip-flop non cambia e quello del contatore di lettura passa soltanto da un
-modulo all'altro. Il modello RTL non lo adotta per una ragione estranea a
-entrambi i criteri: tenere i due contatori nello stesso modulo conserva la
-corrispondenza uno a uno con la struttura in C, che nel confronto fra le due
-descrizioni vale più della fedeltà alla transizione di livello pura.
+Lo scarto fra $0,3\times$ previsto e $0,18\times$ misurato non richiede l'introduzione
+di una causa ulteriore: deriva dall'approssimazione dichiarata nella didascalia della
+tabella~\ref{tab:crossover}.
 
-L'altro tetto è quello di Amdahl\footnote{Se una frazione $s$ del lavoro resta
+\pagebreak
+
+La previsione assume un costo di 35\,ns per istruzione simulata, misurato su $64\times64$, e lo applica a
+$12\times12$, dove la località è molto migliore. Il costo reale su quella forma
+si ricava dalla stessa esecuzione seriale già citata: $12\times12$ per 4227
+cicli sono 608\,688 istruzioni simulate, che in 0,0137\,s danno 22,5\,ns
+ciascuna, cioè un terzo in meno.
+
+Rifacendo il conto con il valore misurato, il lavoro per ciclo su $12\times12$
+è di 3,24\,$\mu$s invece di 5,0, e il rapporto atteso passa da 0,28$\times$ a
+0,179$\times$, contro lo 0,175$\times$ osservato. Previsione e misura
+coincidono entro il due per cento, e non resta alcun divario da spiegare: il
+modello analitico è corretto, ed è il costo per istruzione che gli si dà in
+ingresso a non esserlo.
+I due numeri provengono da sessioni diverse, quindi la coincidenza va letta
+come un ordine di grandezza e non come una verifica puntuale.
+
+Resta una osservazione sulla struttura dati, che non spiega lo scarto ma indica
+una modifica utile. La struttura del canale occupa 16 byte, quindi i quattro
+canali di uscita di una cella ne occupano 64, quanti ne ha una linea di cache,
+e su di essi scrivono a ogni ciclo fino a cinque thread: il proprietario, per i
+suoi quattro canali, e i quattro vicini, per il contatore di lettura. È un caso
+di \emph{false sharing}. I 64 byte non sono nemmeno allineati alla linea, e
+poiché il passo fra celle contigue è di 16\,632 byte l'allineamento ruota da
+una cella all'altra, per cui in molte celle i quattro canali cadono a cavallo
+di due linee anziché dentro una.
+
+Il rimedio è spostare il contatore di lettura nella cella consumatrice, ed è la
+stessa modifica che suggerisce il modello hardware, dove quel flip-flop
+starebbe fisicamente nel consumatore: due criteri indipendenti, uno di
+prestazioni e uno di fedeltà, indicano la stessa modifica.
+
+Lo ridurrebbe però senza eliminarlo. Dopo lo spostamento la linea del
+consumatore conterrebbe i contatori di lettura dei suoi quattro canali,
+scritti da lui e letti dai quattro produttori: è una condivisione fra lettura e
+scrittura invece che fra due scritture, quindi meno grave ma non assente. La
+modifica comporta inoltre di decidere a chi spetti l'aggiornamento di fine
+ciclo di quel campo, che oggi è del proprietario del canale, e tocca perciò la
+struttura del ciclo di clock. Non costa invece area, perché il numero di
+flip-flop non cambia e quello del contatore di lettura passa soltanto da un
+modulo all'altro.
+
+Il \emph{false sharing} non è stato quantificato e la modifica non è stata
+adottata in nessuna delle due descrizioni: resta fra gli sviluppi indicati
+nella sezione~\ref{sec:sviluppi}.
+
+Dopo il costo delle due regioni, il secondo limite è quello di
+Amdahl\footnote{Se una frazione $s$ del lavoro resta
 seriale, il guadagno ottenibile con $p$ processori vale $1/(s + (1-s)/p)$ e non
 supera mai $1/s$, per quanti processori si aggiungano~\cite{Amdahl}. È il motivo
 per cui la frazione seriale va misurata e non stimata: fissa un limite superiore
 che nessun numero di thread può oltrepassare.}, ed è misurato:
 cronometrando separatamente il tempo dentro il ciclo di clock e quello totale si
-ottiene la frazione seriale. Sulle quattrocento esecuzioni dello sweep resta
-sotto il 15\,\% ovunque tranne che nelle due più corte in assoluto, la catena su
-$1\times5$ con 70 cicli e il prodotto di matrici su $12\times12$ con 335, dove
-sale al 24 e al 19\,\%: là l'esecuzione dura decine di microsecondi e il costo
-fisso del programma di verifica non è più trascurabile rispetto al ciclo di
-clock. Dove il lavoro è abbastanza da misurare, il collo di bottiglia è quindi
-dentro il ciclo di clock e non nel programma di verifica. Il rapporto si ribalta
-di nuovo sulle griglie grandi, dove il controllo di terminazione, che è un
-ciclo seriale su tutte le celle a ogni passo, diventa il termine dominante.
+ottiene la frazione seriale. Il cronometro parte al primo passo di clock e si
+ferma all'ultimo, quindi ciò che misura è il costo seriale \emph{per passo},
+cioè l'ingresso-uscita di perimetro e il controllo di terminazione discussi
+nella sezione~\ref{sec:omp-impl}, e non il costo fisso di avvio del programma
+di verifica, che resta fuori dalla finestra.
+
+Sulle quattrocento esecuzioni dello sweep la frazione resta sotto il 15\,\%
+ovunque tranne che in due configurazioni su ottanta, entrambe a un solo thread:
+la catena su $1\times5$ senza ritardo, dove sale al 24\,\%, e il prodotto di
+matrici su $12\times12$ con $k=7$, dove sale al 19\,\%. Le due non hanno in
+comune la durata, perché la prima dura settanta microsecondi e la seconda più
+di un millesimo di secondo, né la dimensione della griglia: hanno in comune un
+lavoro per passo piccolo rispetto ai due termini seriali, cinque celle nel
+primo caso e, nel secondo, un host che alimenta il perimetro a ogni ciclo con
+elementi che deve calcolare. Quale dei due termini prevalga in ciascun caso non
+è isolabile dalle sole due misure. Nelle altre settantotto il collo di
+bottiglia è dentro il ciclo di clock.
 
 \subsection{Il pareggio misurato}
 \label{sec:pareggio}
@@ -828,15 +1318,15 @@ comunicazione.
 
 Lo sweep copre dodici forme da $8\times8$ a $256\times256$, cinque conte di
 thread e tre valori di \texttt{PESO}, con nove ripetizioni per punto di cui si
-prende il \textbf{minimo}: la macchina non è dedicata, e un disturbo esterno può
-solo aggiungere tempo, mai toglierlo. Le forme $40\times40$ e $56\times56$
-infittiscono lo sweep dove la curva attraversa il pareggio: senza $40\times40$
-la sua collocazione resterebbe indeterminata nell'intervallo fra $32\times32$ e
-$48\times48$. Le condizioni sono \textbf{interlacciate}, con la ripetizione come
-ciclo più esterno e \texttt{PESO} come più interno. L'accorgimento non è una
-formalità: eseguendo i tre valori di \texttt{PESO} in blocchi separati, ogni
-blocco cade in un momento diverso e una deriva della macchina si traveste da
-effetto di \texttt{PESO}. Interlacciando, la deriva colpisce tutte le condizioni
+prende il minimo: la macchina non è dedicata, e un disturbo esterno può
+solo aggiungere tempo, mai toglierlo. La forma $40\times40$ infittisce lo sweep
+dove la curva attraversa il pareggio, e senza di essa la collocazione
+resterebbe indeterminata nell'intervallo fra $32\times32$ e $48\times48$;
+$56\times56$ infittisce invece il tratto in cui la curva sale più
+ripidamente. Le condizioni sono interlacciate, con la ripetizione come
+ciclo più esterno e \texttt{PESO} come più interno. L'accorgimento è necessario: eseguendo i tre valori di \texttt{PESO} in blocchi separati, ogni
+blocco cade in un momento diverso, e una deriva della macchina risulterebbe
+indistinguibile da un effetto di \texttt{PESO}. Interlacciando, la deriva colpisce tutte le condizioni
 allo stesso modo.
 
 \begin{figure}[htbp]
@@ -847,7 +1337,7 @@ allo stesso modo.
         xmode=log, log basis x=2,
         xlabel={lato della griglia}, ylabel={speedup del ciclo di clock},
         xtick={8,16,24,32,40,48,56,64,96,128,192,256},
-        xticklabels={8,16,24,32,,48,,64,96,128,192,256},
+        xticklabels={8,16,24,32,40,48,,64,96,128,192,256},
         xticklabel style={font=\footnotesize},
         yticklabel style={font=\footnotesize},
         label style={font=\small},
@@ -865,7 +1355,10 @@ allo stesso modo.
     \end{tikzpicture}
     \caption{Speedup del ciclo di clock contro il lato della griglia: minimo di
              nove ripetizioni, migliore fra le quattro conte di thread parallele
-             e rapportato al caso a un thread. Le tre
+             e rapportato al caso a un thread. Il pareggio letto su questa
+             curva è quindi la prima forma in cui \emph{qualche} conta di thread
+             supera uno, definizione più permissiva di quella della
+             tabella~\ref{tab:crossover}, che è a otto thread fissi. Le tre
              curve corrispondono a tre intensità di calcolo che differiscono di
              un fattore trentadue e attraversano il pareggio fra le stesse due
              forme. Lo scarto residuo fra $40\times40$ e $64\times64$ è il costo
@@ -877,9 +1370,17 @@ allo stesso modo.
 \end{figure}
 
 Il pareggio, riportato nella figura~\ref{fig:pareggio}, cade a $40\times40$ e non
-a $24\times24$: la previsione era ottimistica di poco meno di un fattore due, per
-la stessa ragione di \emph{false sharing} già discussa, che il modello analitico
-non contiene. La collocazione è stretta e non estrapolata, perché $32\times32$ e
+a $24\times24$, dove la tabella~\ref{tab:crossover} lo colloca. Lo scostamento
+ha la stessa origine di quello discusso nella sezione~\ref{sec:parallelo}: la
+previsione assume 35\,ns per istruzione, mentre la tabella~\ref{tab:memoria}
+ne misura da 16 a 23 nell'intervallo di forme in cui il pareggio cade. Rifatta
+con quei valori, la previsione colloca il pareggio appena sotto $40\times40$,
+cioè dove è stato misurato: il modello prevede correttamente il punto di
+pareggio non appena gli si dà il costo per istruzione della forma giusta.
+
+\pagebreak
+
+La collocazione è stretta e non estrapolata, perché $32\times32$ e
 $40\times40$ sono due forme contigue dello sweep e il pareggio cade fra loro per
 tutti e tre i valori di \texttt{PESO}: a $32\times32$ le tre curve valgono
 $0{,}83\times$, $0{,}94\times$ e $0{,}93\times$, a $40\times40$ $1{,}11\times$,
@@ -888,7 +1389,7 @@ poco più di un decimo della velocità seriale su $8\times8$: è il regime in cu
 cadono tutte le forme della suite di verifica, e spiega le misure della
 sezione~\ref{sec:parallelo}.
 
-Il confronto fra le tre curve dà un risultato \textbf{negativo}. Il pareggio cade
+Il confronto fra le tre curve dà un risultato negativo. Il pareggio cade
 fra le stesse due forme per tutti e tre i valori di \texttt{PESO}, che è la
 grandezza in questione, e il valore $\texttt{PESO}=32$ esegue trentadue volte le
 istruzioni di calcolo per comunicazione di $\texttt{PESO}=1$ senza spostarlo di
@@ -897,9 +1398,9 @@ delle forme, con uno scarto che fra $40\times40$ e $64\times64$ arriva al
 25\,\%, ma quell'ordinamento non è intensità di calcolo: è il costo di creazione
 dei thread, che a \texttt{ITER} fisso i valori alti di \texttt{PESO} ammortizzano
 su più cicli, perché eseguono più cicli. Il controllo riportato più sotto rimuove
-proprio questa differenza e non lascia alcun effetto residuo.
-\textbf{L'efficienza della parallelizzazione non dipende da che cosa l'array
-calcola, ma solo da quanto è grande.}
+proprio questa differenza e non lascia un effetto residuo che la misura risolva. Se ne conclude che
+l'efficienza della parallelizzazione non dipende da che cosa l'array calcola,
+ma solo da quanto è grande.
 
 La ragione è strutturale e discende dal disegno del ciclo di clock. Un ciclo è
 per costruzione \emph{una istruzione per cella}: qualunque cosa le celle stiano
@@ -912,7 +1413,7 @@ tempo seriale e tempo parallelo.
 
 Il controllo diretto separa le due cose, ed è uno sweep a sé. Confrontando
 \texttt{PESO} $=1$ con \texttt{ITER} $=62$ e \texttt{PESO} $=32$ con
-\texttt{ITER} $=8$, che eseguono \textbf{2624 cicli entrambi} pur differendo di
+\texttt{ITER} $=8$, che eseguono 2624 cicli entrambi pur differendo di
 trentadue volte nelle istruzioni di calcolo per comunicazione, lo speedup a otto
 thread è $0{,}78\times$ contro $0{,}77\times$ su $32\times32$ e $1{,}91\times$
 contro $2{,}20\times$ su $48\times48$. Su $32\times32$ i due coincidono; su
@@ -934,17 +1435,22 @@ ingresso/uscita di perimetro che cresce come $O(R+C)$ contro un lavoro utile che
 cresce come $O(R \cdot C)$. Il tetto di Amdahl si allontana esattamente nella
 direzione in cui l'array diventa conveniente.
 
-I limiti della misura sono severi. La
-macchina è un portatile con sei core veloci, otto core lenti e un regolatore di
-frequenza in modalità di risparmio, e non è dedicata: \textbf{il valore assoluto
-dello speedup non è riproducibile fra sessioni diverse}, e lo sweep ripetuto a
-distanza di ore e di giorni ha dato picchi di $3{,}7\times$, $7{,}3\times$ e
+\pagebreak
+
+I limiti della misura sono severi, e discendono dalle caratteristiche della
+macchina riportate nella tabella~\ref{tab:macchina}: l'asimmetria fra core
+prestazionali e core efficienti, il regolatore di frequenza in modalità di
+risparmio e il fatto che la macchina non sia dedicata rendono il valore
+assoluto dello speedup non riproducibile fra sessioni diverse. Lo sweep
+ripetuto a distanza di ore e di giorni ha infatti dato picchi di
+$3{,}7\times$, $7{,}3\times$ e
 $8{,}5\times$. Si sono invece ritrovate in ogni sessione la collocazione del
 pareggio, la severità della perdita sotto di esso, l'andamento della frazione
 seriale e l'indipendenza da \texttt{PESO}. Del grafico è quindi significativa la
 forma della curva, non il valore puntuale di ciascun punto.
 
 \subsection{Il muro della memoria}
+\label{sec:memoria}
 
 Il pareggio è raggiungibile: $40\times40$ occupa 27\,MB e
 $256\times256$ poco più di un gigabyte. Quello che resta fuori portata è il
@@ -956,9 +1462,9 @@ Il costo però non è solo di capacità, ed è misurabile separatamente. Il pass
 16\,KB fra celle contigue fa sì che lo stato caldo di ogni cella, poche decine
 di byte fra registri e canali, cada su una pagina diversa: su $256\times256$
 sono 65\,536 pagine contro un \emph{buffer} di traduzione che ne indirizza
-qualche migliaio. L'effetto si isola facendo crescere la griglia \textbf{a un
-solo thread}, dove OpenMP non entra affatto in gioco, e la
-tabella~\ref{tab:memoria} lo riporta.
+qualche migliaio. L'effetto si isola facendo crescere la griglia a un solo
+thread, dove OpenMP non entra affatto in gioco e nessuna delle cause discusse
+finora può intervenire, e la tabella~\ref{tab:memoria} lo riporta.
 
 \begin{table}[htbp]
     \centering
@@ -967,13 +1473,13 @@ tabella~\ref{tab:memoria} lo riporta.
         griglia & memoria occupata & costo per cella-ciclo \\
         \midrule
         $16\times16$   & 4\,MB     & 17,1\,ns \\
-        $32\times32$   & 17\,MB    & \textbf{15,9\,ns} \\
+        $32\times32$   & 17\,MB    & 15,9\,ns \\
         $48\times48$   & 38\,MB    & 22,8\,ns \\
         $64\times64$   & 68\,MB    & 28,5\,ns \\
         $96\times96$   & 153\,MB   & 28,9\,ns \\
         $128\times128$ & 272\,MB   & 33,1\,ns \\
         $192\times192$ & 613\,MB   & 63,5\,ns \\
-        $256\times256$ & 1090\,MB  & \textbf{83,4\,ns} \\
+        $256\times256$ & 1090\,MB  & 83,4\,ns \\
         \bottomrule
     \end{tabular}
     \caption{Degrado da sola località, minimo di tre ripetizioni a un thread. Il
@@ -984,24 +1490,31 @@ tabella~\ref{tab:memoria} lo riporta.
     \label{tab:memoria}
 \end{table}
 
-Il costo di simulare una istruzione passa da 15,9 a 83,4\,ns, cioè
-\textbf{più che quintuplica}, senza che sia cambiato nulla nel lavoro da fare:
-le stesse istruzioni, lo stesso programma, un solo thread. Il valore più basso
-cade su $32\times32$, l'ultima forma che entra ancora nella cache di ultimo
-livello, che su questa macchina è di 24\,MB. Come ogni misura di tempo, il
+Il costo di simulare una istruzione passa da 15,9 a 83,4\,ns, cioè più che
+quintuplica, senza che sia cambiato nulla nel lavoro da fare:
+le stesse istruzioni, lo stesso programma, un solo thread. Il salto netto è fra
+$32\times32$ e $48\times48$, dove il costo cresce del 43\,\%: sono l'ultima
+forma che entra ancora nella cache di ultimo livello, che su questa macchina è
+di 24\,MB (tabella~\ref{tab:macchina}), e la prima che non ci entra. Il minimo
+fra $16\times16$ e $32\times32$ è invece di appena il 7,5\,\%, cioè dentro la
+dispersione dichiarata nella didascalia, e la misura non lo risolve. Come ogni
+misura di tempo, il
 fattore dipende dalla sessione, e in sessioni diverse è stato di tre e di cinque
-volte; quello che si ritrova identico è la posizione del minimo e la crescita
-monotona oltre di esso.
+volte; quello che si ritrova in ogni sessione è il salto in corrispondenza della
+capacità della cache e la crescita monotona oltre di esso.
 
 Ridurre la memoria privata non è però il rimedio, e la misura diretta lo mostra:
 ricompilando con 1\,KB per cella invece di 16\,KB, cioè riducendo di sedici
 volte l'occupazione, su $128\times128$ il tempo a un thread migliora solo del
-$5\,\%$. A dominare non è quanta memoria occupa una cella, ma \emph{quante celle
-ci sono}: sono queste a determinare il numero di pagine su cui cade lo stato
-caldo, e quel numero resta alto anche con celle piccole. Rendere parametrica la
-memoria privata sblocca quindi le griglie grandi, ma non rende più veloci quelle
-che già ci stanno.
+$5\,\%$. Il numero di pagine su cui cade lo stato caldo scende, perché con
+celle da 1\,KB quattro celle condividono una pagina da 4\,KB, ma scende solo di
+quattro volte, da circa sedicimila a circa quattromila su $128\times128$, e
+resta di un ordine di grandezza sopra il buffer di traduzione. Il regime non
+cambia, ed è per questo che il guadagno è del cinque per cento e non
+proporzionale alla riduzione. Rendere parametrica la memoria privata sblocca
+quindi le griglie grandi, ma non rende più veloci quelle che già ci stanno.
 
+\clearpage
 \subsection{Correttezza}
 
 L'aggiornamento a due fasi rende il

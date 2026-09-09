@@ -24,12 +24,12 @@ indica RV32IM.
 Per un array di processori, RISC-V risponde a tre esigenze:
 
 \begin{itemize}
-    \item \textbf{Dimensione.} Una cella deve essere piccola, perché di
+    \item \emph{Dimensione.} Una cella deve essere piccola, perché di
           celle ce ne sono $R \times C$, e RV32I è fra le ISA complete
           più piccole: solo RV32E, che dimezza i registri, lo è di più.
-    \item \textbf{Apertura.} L'architettura è documentata nel dettaglio
+    \item \emph{Apertura.} L'architettura è documentata nel dettaglio
           e priva di vincoli d'uso.
-    \item \textbf{Estendibilità.} RISC-V riserva esplicitamente parte
+    \item \emph{Estendibilità.} RISC-V riserva esplicitamente parte
           dello spazio di codifica alle estensioni non standard: si
           possono aggiungere istruzioni proprie \emph{dentro}
           l'architettura, invece che accanto a essa.
@@ -71,7 +71,7 @@ Per emetterle non è stato necessario modificare l'assemblatore. La direttiva
 custom e permette di scrivere una istruzione dando i campi di codifica;
 avvolta in una macro, si usa poi come una istruzione qualsiasi:
 
-\begin{lstlisting}[caption={La macro che emette \texttt{ISRDY}},label={lst:macro},language=RISCV,float=htbp]
+\begin{lstlisting}[caption={La macro con cui il programma della cella emette \texttt{ISRDY}},label={lst:macro},language=RISCV,float=htbp]
 .macro ISRDY rd, dir
     .insn i 0x0B, 0x2, \rd, x0, \dir
 .endm
@@ -101,7 +101,11 @@ e a restituirne l'esito.
 
 Il tutto è gestito da un \emph{Makefile} che compila l'interprete,
 assembla e collega i programmi in file ELF, li carica nella griglia, esegue la
-suite di verifica e rigenera i dati delle misure. I file ELF sono prodotti dalla
+suite di verifica e rigenera i dati delle misure. Le prove non sono esecuzioni
+singole ma un \emph{parameter sweeping} (da qui in avanti semplicemente \emph{sweep}): 
+ogni programma viene eseguito una volta per ciascuna combinazione dei parametri che
+lo riguardano, e ogni esecuzione stampa una riga in formato CSV. 
+La composizione dello sweep è nella sezione~\ref{sec:metodologia}. I file ELF sono prodotti dalla
 catena \texttt{riscv64-unknown-elf} configurata per \texttt{rv32i}, e caricati
 dal simulatore con un lettore ELF minimale.
 
@@ -117,12 +121,12 @@ La catena usata è interamente libera e si compone di tre strumenti con tre ruol
 distinti:
 
 \begin{itemize}
-    \item \textbf{Icarus Verilog} esegue i due \emph{testbench}, che ripercorrono
+    \item \emph{Icarus Verilog} esegue i due \emph{testbench}, che ripercorrono
           sul modello RTL gli stessi casi limite già verificati sul modello C;
-    \item \textbf{Verilator}, in modalità \texttt{-{}-lint-only}, controlla la
+    \item \emph{Verilator}, in modalità \texttt{-{}-lint-only}, controlla la
           conformità del codice. È più severo di Icarus, che accetta in silenzio
           costrutti che uno strumento di sintesi rifiuterebbe;
-    \item \textbf{Yosys} sintetizza il canale e ne riporta la statistica di
+    \item \emph{Yosys} sintetizza il canale e ne riporta la statistica di
           celle. È lo strumento utilizzato per i numeri della sezione~\ref{sec:rtl}.
 \end{itemize}
 
@@ -131,7 +135,7 @@ distinti:
 
 Il simulatore fa avanzare $R \times C$ processori che per costruzione non
 condividono memoria, e li fa avanzare tutti dello stesso passo. È il caso
-tipico da parallelismo di dati, e OpenMP è lo strumento adatto proprio perché
+tipico di parallelismo di dati, e OpenMP è lo strumento adatto proprio perché
 richiede pochissimi interventi per parallelizzare il codice del simulatore: 
 le due fasi del ciclo di clock sono due cicli \texttt{for} sull'array delle celle, 
 e diventano paralleli con la semplice introduzione di una direttiva \texttt{\#pragma 

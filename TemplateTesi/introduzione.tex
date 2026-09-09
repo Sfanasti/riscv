@@ -2,7 +2,7 @@
 \chapter{Introduzione}
 \label{ch:introduzione}
 
-Un array sistolico è una griglia bidimensionale di unità di calcolo identiche
+Un array sistolico~\cite{KungLeiserson} è una griglia bidimensionale di unità di calcolo identiche
 che comunicano esclusivamente con i vicini immediati: i dati attraversano la
 griglia in maniera sincrona, con passi scanditi dal ciclo di clock, e ogni unità, 
 a ogni ciclo, elabora ciò che riceve dalle unità di calcolo adiacenti.
@@ -20,7 +20,7 @@ riceve un operando associato a un'iterazione diversa da quella attesa: il
 calcolo procede regolarmente, ma su dati non corrispondenti, e produce un
 risultato numericamente definito ma errato, senza che alcun componente rilevi
 l'anomalia.
-\clearpage
+
 La tesi adotta un principio elementare per rimuovere questa dipendenza dalla
 schedulazione: impostare canali sincroni che usano \emph{ready bit} in grado di
 modificare l'eventuale flusso di dati nel canale. Ciascun lato del canale possiede
@@ -32,7 +32,7 @@ dell'altro, e il risultato del calcolo smette di dipendere dalla velocità relat
 dei nodi.
 
 La verifica di questo principio è oggetto della costruzione di
-\textbf{NESO}\footnote{Il nome corrisponde alle quattro direzioni cardinali
+NESO\footnote{Il nome corrisponde alle quattro direzioni cardinali
 (nord, est, sud, ovest), le sole lungo le quali una cella può comunicare.}, un
 simulatore di array bidimensionale di processori RISC-V, corredato dalla
 modellazione in SystemVerilog del meccanismo di canale sincrono e dai programmi che ne
@@ -52,24 +52,24 @@ Il punto di partenza è l'interprete a singolo processore RISC-V sviluppato in u
 tesi precedente~\cite{TesiStella}. A partire da quello sono stati realizzati:
 
 \begin{itemize}
-    \item il \textbf{canale} e il suo protocollo, in cui tutto lo stato di
+    \item il canale e il suo protocollo, in cui tutto lo stato di
           sincronizzazione è costituito da due contatori a un bit e dai
           comparatori che li confrontano;
-    \item quattro \textbf{istruzioni di comunicazione} (\texttt{IN},
+    \item quattro istruzioni di comunicazione (\texttt{IN},
           \texttt{OUT}, \texttt{ISRDY}, \texttt{SETRDY}) aggiunte all'insieme
           RV32I usando lo spazio di codifica \emph{custom-0} che la
           specifica RISC-V lascia libero, senza modificare l'assemblatore;
-    \item la \textbf{griglia}: topologia, cablaggio dei vicini, clock globale con
+    \item la griglia: topologia, cablaggio dei vicini, clock globale con
           aggiornamento a due fasi e ingresso/uscita sul perimetro;
-    \item nove \textbf{programmi di prova} in assembly, con i programmi di
+    \item nove programmi di prova in assembly, con i programmi di
           verifica in C che li eseguono e ne controllano il risultato con delle
           asserzioni: dal protocollo minimo fra due celle alla moltiplicazione
           di matrici e allo stencil di Jacobi;
-    \item il \textbf{modello RTL} del canale e dell'interfaccia di cella in
+    \item il modello RTL del canale e dell'interfaccia di cella in
           SystemVerilog, verificato con due \emph{testbench} e sintetizzato per
           contare quante porte costa il protocollo;
-    \item la \textbf{parallelizzazione} del simulatore con OpenMP, insieme alla relativa analisi
-          di scalabilità
+    \item la parallelizzazione del simulatore con OpenMP, insieme alla relativa
+          analisi di scalabilità.
 \end{itemize}
 Il simulatore, i nove programmi in assembly e i programmi di verifica in C che
 li misurano sono stati sviluppati interamente nel corso di questa tesi: i dati
@@ -85,13 +85,15 @@ hardware) e OpenMP. Il capitolo~\ref{ch:progetto} descrive il progetto
 logico, ovvero l'architettura dell'array e la struttura fisica di una cella e
 di un canale, e discute i due piani su cui il lavoro è parallelo: il calcolo
 distribuito sulle celle e l'esecuzione del simulatore stesso. Il
-capitolo~\ref{ch:implementazione} tratta i dettagli più singificativi dell'
-implementazione: la codifica delle quattro istruzioni, il ciclo di clock a due 
-fasi su cui si fonda la sincronizzazione, il protocollo del canale con l'invariante 
-che ne garantisce la correttezza, lo stato dei registri di ogni cella 
-e la corrispondenza con il modello in SystemVerilog. Il capitolo~\ref{ch:risultati} raccoglie i
+capitolo~\ref{ch:implementazione} tratta i dettagli più significativi
+dell'implementazione: la codifica delle quattro istruzioni, il ciclo di clock a
+due fasi su cui si fonda la sincronizzazione, il protocollo del canale con
+l'invariante che ne garantisce la correttezza, lo stato e la terminazione di
+una cella, l'affaccio dell'host sul perimetro e infine le due descrizioni
+alternative dello stesso progetto, quella in SystemVerilog e quella
+parallela. Il capitolo~\ref{ch:risultati} raccoglie i
 risultati: cosa dimostra ciascun programma di prova, il confronto con il caso
 privo del \emph{ready bit}, il costo in cicli in funzione della forma
 della griglia e le prestazioni del simulatore.\ifconclusioni{} Il
-capitolo~\ref{ch:conclusioni} riassume il lavoro svolto e l'esperienza di
-sviluppo, e indica gli sviluppi futuri.\fi
+capitolo~\ref{ch:conclusioni} riassume i due risultati e indica gli sviluppi
+futuri.\fi
