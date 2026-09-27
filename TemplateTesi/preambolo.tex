@@ -169,6 +169,12 @@ title=\lstname % show the filename of files included with \lstinputlisting; also
 \let\originalsubsection\subsection
 \renewcommand{\subsection}{\FloatBarrier\originalsubsection}
 
+% Didascalie: etichetta (Figura 3.1, Codice 3.2, Tabella 5.4) in grassetto e
+% testo in corsivo, cosi' le didascalie lunghe si staccano dal corpo del testo.
+% Caricato dopo 'listings' perche' valga anche per i lstlisting.
+\usepackage{caption}
+\captionsetup{labelfont=bf, textfont=it}
+
 % Parametri dei float. Con i valori predefiniti una figura alta piu' di meta'
 % pagina finisce su una pagina tutta sua, con fasce bianche sopra e sotto:
 % questi permettono di mettere figura e testo sulla stessa pagina.
@@ -202,3 +208,13 @@ title=\lstname % show the filename of files included with \lstinputlisting; also
 
 % Indice fino alle sottosezioni: i \paragraph restano fuori
 \setcounter{tocdepth}{2}
+
+% Sorgenti delle appendici: listings non gestisce da solo le lettere accentate
+% in UTF-8, e conosce Verilog ma non le parole chiave di SystemVerilog
+\lstset{literate={à}{{\`a}}1 {è}{{\`e}}1 {é}{{\'e}}1 {È}{{\`E}}1
+  {ì}{{\`i}}1 {ò}{{\`o}}1 {ù}{{\`u}}1 {±}{{$\pm$}}1 {—}{{\textemdash}}1}
+\lstdefinelanguage[System]{Verilog}[]{Verilog}{morekeywords={logic, always_ff,
+  always_comb, localparam, genvar, generate, endgenerate}}
+
+% Le regole di sillabazione italiane spezzavano il nome in Sy-stemVerilog
+\babelhyphenation[italian]{System-Verilog}

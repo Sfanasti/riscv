@@ -1,18 +1,9 @@
 .option norvc
 .include "macros.s"
 
-# Echo verticale: ogni cella aspetta un valore da NORD e lo ripete a SUD.
-# Su una griglia RxC le colonne sono indipendenti e il dato attraversa tutta
-# la griglia dall'alto in basso.
-#
-# Serve a dimostrare l'I/O di bordo dell'host, perché i due capi della catena
-# cadono fuori dalla griglia:
-#   la prima riga  aspetta su NORD un vicino che non esiste -> lo alimenta l'host
-#   l'ultima riga  pubblica su SUD verso nessuno -> lo drena l'host
-# Senza il drenaggio l'ultima riga resterebbe bloccata sulla propria SETRDY:
-# è il motivo per cui grid_pop esiste e non basta "leggere" il canale.
-#
-# Atteso a fine corsa: s1 == valore spinto, in TUTTE le RxC celle.
+# Eco verticale: ogni cella legge da NORD e ripete a SUD.
+# La prima riga è alimentata dall'host, l'ultima è drenata dall'host.
+# Atteso: s1 == valore spinto in tutte le celle.
 #
 # USO: make test-bordo
 

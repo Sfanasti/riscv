@@ -1,10 +1,4 @@
-/*
-    clock_gettime e CLOCK_MONOTONIC sono POSIX, e -std=c11 (senza gnu) li
-    nasconde: la macro li riporta a galla senza dover cambiare CFLAGS per
-    tutto il progetto. Serve clock_gettime e non clock(): quest'ultima misura
-    tempo di CPU, che con piu' thread e' la somma dei thread e non dice
-    niente sullo speedup.
-*/
+/* clock_gettime è POSIX, e -std=c11 la nasconde */
 #define _POSIX_C_SOURCE 199309L
 
 #include "grid.h"
@@ -17,32 +11,7 @@
 #include <omp.h>
 #endif
 
-/*
-    Cronometro della simulazione, acceso da TEMPI=<file>: senza quella
-    variabile grid_step paga un solo test su un puntatore e non si scrive
-    niente, quindi make test e make dati restano identici a prima.
-
-    Non si usa "time" della shell perché quello misurerebbe anche il
-    caricamento dell'ELF e il riferimento in C degli harness (in test_jacobi
-    sono ITER passi su tutta la griglia), che non fanno parte della
-    simulazione. Qui il cronometro parte al primo grid_step e si ferma
-    all'ultimo.
-
-    Si misurano DUE tempi, non uno:
-
-        t_step   tempo speso dentro grid_step, cioè la parte parallelizzata
-        t_tot    dal primo grid_step all'ultimo, quindi anche l'I/O di bordo e
-                 il controllo di terminazione dell'harness, che sono seriali
-
-    Il loro rapporto dà 1 - t_step/t_tot, la frazione seriale MISURATA: è il
-    tetto di Amdahl del simulatore. Serve perché il tempo totale da solo non
-    dice se uno speedup deludente venga dalla griglia o dal driver che la usa,
-    e in questo progetto viene dal driver.
-
-    Costo della misura: due clock_gettime per ciclo, circa 40 ns. Trascurabile
-    sulle griglie grandi, ma su una 1x1 è dello stesso ordine del lavoro di un
-    ciclo: quelle righe vanno lette come ordine di grandezza, non come misura.
-*/
+/* cronometro, attivo con TEMPI=<file> */
 static const char *file_tempi;              /* NULL = cronometro spento */
 static const char *nome_kernel;
 static double      t_step, t_prima, t_ultima;
@@ -59,7 +28,7 @@ static int quanti_thread(void) {
 #ifdef _OPENMP
     return omp_get_max_threads();
 #else
-    return 1;   /* build senza -fopenmp: le pragma sono commenti */
+    return 1;   /* compilato senza -fopenmp */
 #endif
 }
 
@@ -76,12 +45,6 @@ static void scrivi_tempi(void) {
     fclose(f);
 }
 
-/*
-    Chiamata da grid_init, che gira sempre da codice seriale prima di
-    qualunque regione parallela: stessa convenzione di leggi_ambiente in
-    risc.c. La riga esce da atexit, così gli harness non cambiano di una riga
-    e un run che fallisce un assert non lascia un tempo nel CSV.
-*/
 static void tempi_init(const Grid *grid) {
     static int registrato;
 
@@ -102,8 +65,9 @@ static void tempi_init(const Grid *grid) {
 }
 
 void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
-     if (rows <= 0 || cols <= 0) {
-        fprintf(stderr, "griglia %dx%d: righe e colonne devono essere > 0\n", rows, cols);
+    if (rows <= 0 || cols <= 0) {
+        fprintf(stderr, "griglia %dx%d: righe e colonne devono essere > 0\n",
+                rows, cols);
         exit(1);
     }
 
@@ -119,12 +83,6 @@ void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
             RISC_V *k = grid_at(grid, r, c);
             init_risc(k, start_pc, r * cols + c);
 
-            /*
-                Identità cablata: ogni cella nasce sapendo dove si trova.
-                Serve perché i programmi scelgono il proprio ruolo dalla
-                posizione e ricavarla dall'id lineare richiederebbe una divisione,
-                che rv32i non ha.
-            */
             k -> regs[10] = (uint32_t)r;      /* a0 = riga */
             k -> regs[11] = (uint32_t)c;      /* a1 = colonna */
             k -> regs[12] = (uint32_t)rows;   /* a2 = righe totali */
@@ -132,7 +90,7 @@ void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
         }
     }
 
-    /* In orizzontale E <-> O: (r,c) <-> (r,c±1) */
+    /* EST <-> OVEST: (r,c) <-> (r,c+1) */
     for(int r = 0; r < rows; r++){
         for(int c = 0; c < cols - 1; c++){
             RISC_V *a = grid_at(grid, r, c);
@@ -142,7 +100,7 @@ void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
         }
     }
 
-    /* In verticale S <-> N: (r,c) <-> (r±1,c1) */
+    /* SUD <-> NORD: (r,c) <-> (r+1,c) */
     for(int r = 0; r < rows - 1; r++){
         for(int c = 0; c < cols; c++){
             RISC_V *a = grid_at(grid, r, c);
@@ -152,6 +110,7 @@ void grid_init(Grid *grid, int rows, int cols, uint32_t start_pc){
         }
     }
 
+    /* canali di bordo: N/S per colonna, O/E per riga */
     int idx = 0;
     for (int c = 0; c < cols; c++) {
         grid_at(grid, 0, c)->in_ch[NORD] = &grid->border[idx++];
@@ -185,17 +144,14 @@ void grid_step(Grid *grid) {
     }
 
     #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; i++){                 /* fase compute */
+    for (int i = 0; i < n; i++){                 /* fase di calcolo */
         if (grid -> risc[i].running) {
             execute_step(&grid -> risc[i]);
         }
     }
 
-    /* barriera implicita a fine loop: nessuno committa prima che tutti
-       abbiano calcolato. È esattamente la separazione delle due fasi. */
-
     #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; i++){                  /* fase commit */
+    for (int i = 0; i < n; i++){                  /* fase di aggiornamento */
         for (int d = 0; d < 4; d++){
             ch_commit(&grid -> risc[i].out_ch[d]);
         }
@@ -226,25 +182,16 @@ void grid_spin(const Grid *grid, unsigned *ritentativi, unsigned *attese){
     }
 }
 
-/*
-    Una direzione è "di bordo" esattamente quando il suo IN è uno dei canali
-    posseduti dalla griglia: il cablaggio di grid_init lo ha già deciso, non
-    serve rifare il conto sulle coordinate.
-*/
 static int e_bordo(Grid *grid, int r, int c, int dir){
     Channel *ch = grid_at(grid, r, c) -> in_ch[dir];
-    return ch >= grid -> border && ch < grid -> border + 2 * (grid -> rows + grid -> cols);
+    int n_border = 2 * (grid -> rows + grid -> cols);
+    return ch >= grid -> border && ch < grid -> border + n_border;
 }
 
 int grid_push(Grid *grid, int r, int c, int dir, uint32_t v){
     assert(e_bordo(grid, r, c, dir));
 
-    /*
-        l'host fa quello che farebbe un vicino produttore: OUT poi SETRDY.
-        Se la cella non ha ancora consumato il valore precedente la ch_write
-        viene rifiutata, ch_setrdy dà 0 e il chiamante ritenta: stessa
-        backpressure che si vede fra due celle.
-    */
+    /* OUT e SETRDY dell'host */
     Channel *ch = grid_at(grid, r, c) -> in_ch[dir];
     ch_write(ch, v);
     return ch_setrdy(ch);
@@ -253,10 +200,7 @@ int grid_push(Grid *grid, int r, int c, int dir, uint32_t v){
 int grid_pop(Grid *grid, int r, int c, int dir, uint32_t *v){
     assert(e_bordo(grid, r, c, dir));
 
-    /*
-        qui l'host è il consumatore: senza questa lettura l'OUT di perimetro
-        resta pieno per sempre e la cella si blocca sulla propria SETRDY.
-    */
+    /* ISRDY e IN dell'host */
     Channel *ch = &grid_at(grid, r, c) -> out_ch[dir];
     if (!ch_isrdy(ch)) {
         return 0;
@@ -276,12 +220,6 @@ void grid_border_fill(Grid *grid, uint32_t v){
     }
 }
 
-/*
-    Speculare a grid_border_fill:
-    condizione affinché un kernel che spinge fuori dal perimetro possa
-    terminare. I valori si scartano : chi ne vuole uno preciso usa grid_pop
-    sulla direzione che gli interessa
-*/
 int grid_border_drain(Grid *grid){
     int usciti = 0;
     uint32_t v;

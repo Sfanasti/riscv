@@ -3,21 +3,27 @@
 \label{ch:progetto}
 
 Il capitolo descrive le scelte di progetto prima di qualunque riga di codice, e
-procede dal generale al particolare. Le prime due sezioni definiscono il
-modello dell'array e la cella che lo compone. La terza tratta i dettagli di 
+procede dal generale al particolare. 
+
+Le prime due sezioni definiscono il modello dell'array e la cella che lo compone. 
+
+La terza tratta i dettagli di 
 progettazione del canale, che è l'unico meccanismo di interazione dell'intero 
 sistema e ne concentra tutte le scelte non ovvie. 
-La quarta mostra come il programma host si affacci sul perimetro senza
-essere un caso speciale, e la quinta discute i due piani di parallelismo del
+
+La quarta mostra come il programma host interagisca con il perimetro senza
+che questo sia un caso speciale per le celle. 
+
+La quinta discute i due piani di parallelismo del
 progetto, quello dell'array simulato e quello del simulatore, che il resto
 della tesi tiene distinti.
 
 Da qui in poi, il termine \emph{simulatore} indica l'intero programma, ovvero
-la parte che fa avanzare l'array ciclo per ciclo e il \emph{programma host},
+la parte che fa avanzare l'array ciclo di clock dopo ciclo di clock e il \emph{programma host},
 che immette e consuma i valori sul perimetro e ne raccoglie i risultati.
 L'\emph{array} e le sue celle esistono soltanto dentro il simulatore.
 La distinzione vale per tutte le grandezze che seguono: cicli, istruzioni, canali
-e protocollo appartengono all'array simulato, thread e speedup al simulatore.
+e protocollo si riferiscono all'array simulato, thread e speedup al simulatore.
 
 \section{Il modello dell'array}
 \label{sec:architettura}
@@ -25,7 +31,7 @@ e protocollo appartengono all'array simulato, thread e speedup al simulatore.
 NESO simula una griglia rettangolare di $R \times C$ celle. Ogni cella è un
 processore RISC-V completo e indipendente: ha i suoi registri, il suo
 \emph{program counter} e la sua memoria privata. Non esiste memoria condivisa,
-non esiste un bus, non esiste un nodo di coordinamento. L''unico modo che una cella 
+non esiste un bus, non esiste un nodo di coordinamento. L'unico modo che una cella 
 ha per influenzare il resto del sistema è mandare una parola a uno dei quattro vicini 
 ortogonali, e l'unico modo di esserne influenzata è riceverne una.
 
@@ -40,8 +46,9 @@ Le regole del modello sono quattro:
           il più significativo dei due bit che la rappresentano:
           $\mathrm{opp}(d) = d \oplus 2$.
     \item \emph{tempo globale e discreto.} Esiste un clock unico. A ogni ciclo
-          ogni cella ancora attiva esegue esattamente una istruzione.
-    \item \emph{canali monodirezionali di una posizione.} Fra due celle
+          ogni cella ancora attiva esegue esattamente un'istruzione.
+    \item \emph{canali monodirezionali di una posizione (grado di asincronia
+          uno).} Fra due celle
           adiacenti esistono due canali, di direzione opposta, e ciascuno può contenere
           al più una parola non ancora letta.
         \item \emph{un solo programma.} Tutte le celle eseguono lo stesso programma,
@@ -50,9 +57,15 @@ Le regole del modello sono quattro:
 
 \end{enumerate}
 
-L'ultima regola rende il modello un array e non un insieme di
-processori diversi messi vicini. È anche la proprietà su cui si regge la sua
-realizzabilità in hardware: si costruisce una cella e la si replica.
+L'ultima regola è una scelta del modello di programmazione, non un vincolo
+dell'architettura. La realizzabilità in hardware si regge sull'uniformità
+delle celle, non sull'identità dei programmi: le celle hanno tutte la stessa
+ISA e la stessa interfaccia verso i vicini, quindi se ne costruisce una e la
+si replica $R \times C$ volte. Nulla impedirebbe di caricare in celle diverse
+programmi diversi, tutti RV32I: cambierebbe soltanto il \emph{boot} logico
+dell'array, cioè la fase in cui il simulatore deposita le immagini nelle
+memorie private. Tenere un solo programma semplifica quel caricamento e fa
+del ruolo di ciascuna cella una conseguenza della sua posizione.
 
 È il modello di esecuzione SPMD (\emph{Single Program, Multiple
 Data})~\cite{Darema}: un solo codice binario gira su tutte le celle, e a differenziarne
@@ -62,6 +75,11 @@ Nel programma produttore-consumatore, per esempio, la cella di colonna 0
 produce e le altre consumano. Il meccanismo con cui una cella conosce la
 propria posizione è nella sezione~\ref{sec:registri}. La
 figura~\ref{fig:array} mostra la topologia e il cablaggio appena descritti.
+
+
+
+\section{La cella}
+\label{sec:cella}
 
 \begin{figure}[htbp]
     \centering
@@ -121,38 +139,36 @@ figura~\ref{fig:array} mostra la topologia e il cablaggio appena descritti.
     \label{fig:array}
 \end{figure}
 
+Una cella contiene lo stato architetturale di un processore RV32I, esteso ora
+con i canali con cui comunica con i vicini, e la memoria privata su cui lavora.
 
-\section{La cella}
-\label{sec:cella}
-
-Una cella contiene lo stato di un processore RV32I, la memoria su cui lavora
-e i canali con cui parla ai vicini:
+Lo stato di una cella comprende quindi:
 
 \begin{itemize}
     \item i trentadue registri interi dell'architettura, con
           \texttt{x0} cablato a zero;
-    \item il program counter;
-    \item una memoria privata di 16\,KB, indirizzata a byte, che
-          contiene sia il codice sia i dati;
+    \item il \emph{program counter};
     \item quattro canali di uscita, uno per direzione, di cui la cella è
           l'unica proprietaria;
     \item quattro riferimenti a canali di ingresso, che sono i canali di
           uscita dei vicini;
-    \item due contatori di misura, tenuti dal simulatore a supporto delle misure 
-          descritte nella sezione~\ref{sec:metodologia}.
+    \item due contatori di misura, tenuti dal simulatore a supporto delle misure
+          descritte nella sezione~\ref{sec:metodologia};
+    \item una memoria privata di 16 KB, indirizzata a byte, che contiene sia il 
+          codice sia i dati.
 \end{itemize}
-La memoria privata è il punto in cui il modello risulta più vincolante del necessario:
+La memoria privata è il punto in cui il simulatore risulta più vincolante del necessario:
 16\,KB per cella significa che una griglia $12 \times 12$ occupa
-già più di due megabyte di sola memoria simulata. Questa capacità è però una
+già più di due megabyte di sola memoria simulata. La capacità della memoria privata è però una
 costante che può essere modificata a tempo di compilazione (\texttt{MEM\_SIZE} in 
-\texttt{risc.h}), non un vincolo intrinseco del modello: per griglie più grandi è
-sufficiente ridurre tale costante e ricompilare, non modificare l'architettura. La
+\texttt{risc.h}), non un vincolo intrinseco del modello: per griglie più grandi si può 
+ridurre tale costante e ricompilare senza necessità di modificare l'architettura. La
 figura~\ref{fig:cella} riassume gli elementi appena elencati.
 
 \begin{figure}[htbp]
     \centering
     \begin{tikzpicture}[
-        scale=0.9, transform shape,
+        scale=0.8, transform shape,
         blocco/.style={draw, thick, minimum height=0.9cm, font=\small, align=center},
         ch/.style={draw, fill=black!8, minimum width=1.5cm, minimum height=0.55cm,
                    font=\scriptsize\ttfamily},
@@ -196,9 +212,9 @@ figura~\ref{fig:cella} riassume gli elementi appena elencati.
     \node[eti, anchor=west]  at ([shift={(1.95,-0.7)}]cella.east)  {\texttt{in\_ch[E]}};
     \end{tikzpicture}
     \caption[Struttura di una cella]{Struttura di una cella. I quattro
-    canali di uscita appartengono alla cella, che ne è l'unica scrittrice; i
+    canali di uscita appartengono alla cella, che ne è l'unica proprietaria; i
     quattro ingressi (tratteggiati) non sono suoi, sono i canali di uscita dei
-    quattro vicini, raggiunti per puntatore. La memoria è privata dela cella, ovvero 
+    quattro vicini, raggiunti per puntatore. La memoria è privata della cella, ovvero 
     non è visibile a nessun'altra.}
     \label{fig:cella}
 \end{figure}
@@ -208,7 +224,7 @@ figura~\ref{fig:cella} riassume gli elementi appena elencati.
 \label{sec:canale}
 
 Il canale è il componente su cui si basa il protocollo di comunicazione, ed è
-deliberatamente molto compatto:
+deliberatamente molto compatto.
 
 \begin{lstlisting}[caption={La struttura del canale e i suoi due test},label={lst:channel},language=C,float=htbp]
 typedef struct Channel {
@@ -220,14 +236,14 @@ typedef struct Channel {
 } Channel;
 
 /* i test guardano lo stato ATTUALE, mai i gemelli _next */
-static inline int ch_isrdy(const Channel *c) {   /* c'e' una parola da leggere? */
+static inline int ch_isrdy(const Channel *c) {   /* c'è una parola da leggere? */
     return c -> wp != c -> rp;
 }
-static inline int ch_iswrt(const Channel *c) {   /* si puo' pubblicare? */
+static inline int ch_iswrt(const Channel *c) {   /* si può pubblicare? */
     return c -> wp == c -> rp;
 }
 
-/* IN: legge e, se c'era un dato, libera lo slot */
+/* IN: legge e, se c'era un dato, libera la posizione */
 static inline uint32_t ch_read_c(Channel *c) {
     uint32_t v = c -> data;
     if (ch_isrdy(c)) {
@@ -236,9 +252,9 @@ static inline uint32_t ch_read_c(Channel *c) {
     return v;
 }
 \end{lstlisting}
-
-tutto lo stato necessario a implementare il protocollo è costituito da due 
-contatori a un bit e dal comparatore che li
+\clearpage
+Tutto lo stato necessario a implementare il protocollo è costituito da due 
+contatori modulo 2 (a un bit) e dal comparatore che li
 confronta. Nel codice si chiamano \texttt{wp} e \texttt{rp}, dal
 \emph{write pointer} e \emph{read pointer} da cui derivano, ma nel seguito
 saranno i due \emph{ready bit} del canale, uno per lato: il produttore commuta
@@ -265,24 +281,24 @@ campi si riassume così:
 
 La scelta è fra due famiglie di protocolli di sincronizzazione: uno
 \emph{a livelli}, in cui lo stato del canale è il valore assoluto di un
-segnale condiviso, e uno \emph{a transizione}, in cui è la commutazione
+segnale condiviso, e uno \emph{a transizione di livello}, in cui è la commutazione
 di un segnale, non il suo valore, a portare l'informazione~\cite{Sutherland1989}.
-Il canale di NESO adotta la seconda famiglia.
+Il canale di NESO adotta un protocollo della seconda famiglia.
 
 Un unico bit di occupazione non basterebbe, perché andrebbe scritto da due lati
-diversi: il produttore lo alzerebbe pubblicando, il consumatore lo abbasserebbe
+diversi: il produttore lo setterebbe pubblicando, il consumatore lo resetterebbe
 leggendo. Le due cose accadono nello stesso ciclo ogni volta che il vicino
 consuma mentre il mittente pubblica, e le due scritture finirebbero sullo stesso
 campo. Nel simulatore l'esito dipenderebbe dall'ordine con cui le celle vengono
-visitate; in hardware due sorgenti che pilotano lo stesso flip-flop sul
-medesimo fronte non descrivono un circuito realizzabile.
+visitate; in hardware non si può realizzare un circuito in cui due sorgenti pilotano lo stesso flip-flop nel
+medesimo istante.
 
-Con due contatori ogni lato scrive soltanto il proprio campo: il produttore
+Con due contatori, ogni lato scrive soltanto il proprio campo: il produttore
 tocca solo \texttt{wp}, il consumatore solo \texttt{rp}. Non c'è contesa e non
 c'è dipendenza dall'ordine di scansione, perché nessuno dei due scrive una
 variabile comune. I contatori sono \emph{modulo due} perché il canale ha una
 sola posizione: bastano due stati, quindi un solo bit, che per costruzione non
-può traboccare.
+può andare in \emph{overflow}.
 
 Ogni canale è condiviso dalle due celle che collega: il canale di uscita verso
 est del mittente \emph{è} il canale di ingresso da ovest del ricevente. Non
@@ -319,12 +335,12 @@ Il primo piano è quello dell'array: a ogni ciclo ogni cella attiva calcola il
 proprio nuovo stato a partire dallo stato in cui l'array si trova all'inizio del
 ciclo, che è lo stesso per tutte.
 La forma che il parallelismo assume qui è quella sistolica: i dati si
-muovono e il calcolo sta fermo. Ogni cella può accumulare un risultato che non lascia
-mai la stessa, e a scorrere sono gli operandi che la attraversano. Il programma
+muovono e il calcolo sta fermo. Ogni cella può accumulare un risultato che non
+la lascia mai, e a scorrere sono gli operandi che la attraversano. Il programma
 di moltiplicazione di matrici, descritto nella sezione~\ref{sec:kernel}, ne è
 il caso canonico.
 
-Poiché tutte le celle eseguono la stesso programma, la suddivisione
+Poiché tutte le celle eseguono lo stesso programma, la suddivisione
 del lavoro non è espressa da un programma di coordinamento ma dalla posizione:
 ogni cella nasce sapendo dove si trova e sceglie il proprio ruolo da lì
 (sezione~\ref{sec:registri}). Il perimetro ha $O(R+C)$ canali contro gli
@@ -363,23 +379,24 @@ scrittore:
 Ciascuna delle due fasi è quindi un ciclo banalmente parallelo (per usare la
 traduzione consueta di \emph{embarrassingly parallel}): le iterazioni sono
 indipendenti e non richiedono sincronizzazione al proprio interno. 
-L'unica sincronizzazione necessaria è la barriera fra le due fasi,
-discussa nella sezione~\ref{sec:omp-impl}.
+Le uniche sincronizzazioni necessarie sono le due barriere di ogni ciclo, fra
+calcolo e aggiornamento e fra aggiornamento e ciclo successivo, discusse nella
+sezione~\ref{sec:omp-impl}.
 
-Un caso che potrebbe sembrare una corsa critica in realtà non lo è: una cella
+Un caso che potrebbe sembrare una \emph{race condition} in realtà non lo è: una cella
 che legge da un vicino scrive \texttt{rp\_next} \emph{dentro la struttura di
 quel vicino}. Due thread lavorano quindi sulla stessa struttura, ma su campi
 diversi, e in C11 membri distinti di una struttura sono posizioni di memoria
-distinte~\cite{C11}: non c'è corsa critica nemmeno fra i due byte adiacenti. È una
+distinte~\cite{C11}: non c'è \emph{race condition} nemmeno fra i due byte adiacenti. È una
 questione diversa dal \emph{false sharing}\footnote{Due thread che scrivono
 campi distinti ma vicini si contendono ugualmente la linea di cache che li
 contiene, perché la coerenza fra le cache si mantiene a granularità di linea e
 non di variabile: ogni scrittura invalida la copia dell'altro, che deve
 rileggerla. È condivisione solo apparente, da cui il nome, e a differenza di una
-corsa critica non altera il risultato, lo rallenta soltanto~\cite{Torrellas}.},
+\emph{race condition} non altera il risultato, lo rallenta soltanto~\cite{Torrellas}.},
 che riguarda le prestazioni e non la correttezza, e di cui si parla nella
 sezione~\ref{sec:prestazioni}.
 
-La separazione in due fasi serve alla riproducibilità del risultato. Che renda
-superfluo ogni lock nella simulazione di un singolo ciclo di clock è una
+La separazione in due fasi serve al determinismo del risultato. Che renda
+superfluo ogni \emph{lock} nella simulazione di un singolo ciclo di clock è una
 conseguenza dell'unico scrittore per campo.

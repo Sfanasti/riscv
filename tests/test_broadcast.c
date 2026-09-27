@@ -1,14 +1,7 @@
 /*
-    Verifica end-to-end di asm/broadcast.s su griglia RxC.
+    Verifica di broadcast.s (e memtest.s) su griglia RxC: s1 == valore atteso
+    in ogni cella. Senza CSV=1 stampa anche s4 per cella, che cresce con r+c.
     Uso: test_broadcast <file.o> <righe> <colonne> <valore atteso>
-
-    Differenza rispetto a test_catena.c: lì il risultato stava in un punto
-    solo (il sink), qui l'asserzione è su TUTTE le RxC celle: va dimostrato
-    che raggiunge tutti.
-
-    Stampa anche la mappa delle attese (s4), che disegna l'onda diagonale: il
-    valore deve crescere con r+c. Se una cella lontana ha aspettato meno di una
-    vicina, la propagazione è sbagliata.
 */
 
 #include <assert.h>
@@ -18,9 +11,9 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
+#define MAX_CICLI 1000000   /* tetto: se lo tocca, il test fallisce */
 
-/* indici dei registri (si veda REG_NAMES in risc.c) */
+/* indici dei registri */
 #define A0 10   /* riga */
 #define A1 11   /* colonna */
 #define A2 12   /* righe totali */
@@ -52,7 +45,10 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
     int cicli = 0, vivi;
     do {
@@ -64,10 +60,7 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /*
-        il rischio vero di questo programma è che una cella resti in attesa di
-        un vicino che non le manderà mai niente: si manifesta qui
-    */
+    /* terminazione per ECALL, non per tetto */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
@@ -90,11 +83,7 @@ int main(int argc, char **argv) {
     grid_spin(&g, &ritentativi, &attese);
     fprintf(stderr, "%d,%d,%d,%u,%u,%d\n", rows, cols, cicli, ritentativi, attese, atteso);
 
-    /*
-        La mappa cella per cella dell'attesa: cresce con r+c, è la forma
-        dell'onda che attraversa la griglia. Una riga per riga della griglia,
-        quindi va tolta di mezzo quando l'uscita deve restare un CSV.
-    */
+    /* mappa di s4, esclusa dal CSV */
     if (!getenv("CSV")) {
         for (int r = 0; r < rows; r++) {
             fprintf(stderr, "%16s s4:", "");

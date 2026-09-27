@@ -1,12 +1,4 @@
-/*
-    Testbench di neso_channel.sv: riproduce la sequenza di asm/prodcons.s su un
-    solo canale e verifica le proprieta' che il protocollo deve garantire.
-    Se il modulo e il modello C di src/channel.h concordano, passa.
-
-    Gli stessi casi limite sono asseriti in tests/test_channel.c: questo e' il
-    gemello hardware di quel file, incluso il caso [5], che e' il test di
-    regressione della rimozione del bit "pending".
-*/
+/* testbench di neso_channel.sv: gli stessi casi di tests/test_channel.c */
 
 `timescale 1ns / 1ps
 `include "neso_defs.svh"
@@ -57,10 +49,8 @@ module tb_neso_channel;
     endtask
 
     /*
-        Le operazioni del produttore/consumatore. Ognuna tiene il proprio enable
-        alto per un solo fronte di salita, come farebbe il decoder che esegue una
-        istruzione per ciclo. L'esito si campiona subito dopo aver alzato
-        l'enable: e' combinatorio e riflette lo stato che il fronte usera'.
+        Ogni operazione tiene l'enable alto per un solo fronte; l'esito,
+        combinatorio, si campiona subito dopo averlo alzato.
     */
     task automatic op_out(input logic [31:0] v);
         @(negedge clk);
@@ -89,7 +79,7 @@ module tb_neso_channel;
         $display("  IN     valore=%0d", letto);
     endtask
 
-    /* ISRDY non alza nessun enable: legge un filo e basta */
+    /* ISRDY non alza enable: legge solo isrdy */
     task automatic op_isrdy;
         @(negedge clk);
         #1 esito = isrdy;
@@ -106,7 +96,7 @@ module tb_neso_channel;
         rst_n = 1'b1;
         @(negedge clk);
 
-        $display("[1] dopo il reset il canale e' vuoto");
+        $display("[1] dopo il reset il canale è vuoto");
         verifica(iswrt === 1'b1, "iswrt alto");
         verifica(isrdy === 1'b0, "isrdy basso");
 
@@ -122,9 +112,9 @@ module tb_neso_channel;
         op_setrdy;
         verifica(esito === 1'b0, "SETRDY su slot pieno ritorna 0");
         op_isrdy;
-        verifica(esito === 1'b1, "il canale e' ancora pieno");
-        verifica(rd_data === 32'd42, "il dato pubblicato non e' stato toccato");
-        verifica(dut.out_reg === 32'd99, "ma il 99 e' nel registro di uscita");
+        verifica(esito === 1'b1, "il canale è ancora pieno");
+        verifica(rd_data === 32'd42, "il dato pubblicato non è stato toccato");
+        verifica(dut.out_reg === 32'd99, "ma il 99 è nel registro di uscita");
 
         $display("[4] il consumatore legge e libera lo slot");
         op_in;
@@ -133,14 +123,8 @@ module tb_neso_channel;
         verifica(esito === 1'b0, "canale di nuovo vuoto");
         verifica(iswrt === 1'b1, "e di nuovo scrivibile");
 
-        /*
-            Il caso che distingue questo progetto da quello con "pending".
-            Nessuna OUT qui davanti: il 99 e' rimasto nel registro di uscita dal
-            punto [3], caricato mentre il canale era pieno, e la prima SETRDY che
-            riesce lo consegna. Con "pending" la OUT del punto [3] sarebbe stata
-            rifiutata e questa SETRDY avrebbe ripubblicato il 42.
-        */
-        $display("[5] regressione: SETRDY senza OUT consegna il valore gia' caricato");
+        /* il 99 caricato a canale pieno in [3] esce alla prima SETRDY */
+        $display("[5] SETRDY senza OUT consegna il valore già caricato");
         op_setrdy;
         verifica(esito === 1'b1, "SETRDY riesce a canale vuoto");
         op_in;

@@ -1,5 +1,4 @@
-# Istruzioni custom dell'array NESO - opcode custom-0 = 0x0B (spazio libero RISC_V)
-# Formato I-type:   .insn i opcode, funct3, rd, rs1, imm
+# Istruzioni custom NESO: opcode custom-0 (0x0B), formato I
 #   | imm[11:0] | rs1 | funct3 | rd | opcode |
 #   |  31..20   |19.15| 14..12 |11.7|  6..0  |
 # La direzione sta nei 2 bit bassi dell'immediato
@@ -8,7 +7,7 @@
 .equ SUD,   2
 .equ OVEST, 3
 
-# --- percorso dati  ---
+# --- dati ---
 .macro IN rd, dir              # rd <- IN[dir]            (funct3=0)
     .insn i 0x0B, 0x0, \rd, x0, \dir
 .endm
@@ -16,7 +15,7 @@
     .insn i 0x0B, 0x1, x0, \rs, \dir
 .endm
 
-# --- ready-bit (le due nuove, task 1) ---
+# --- ready bit ---
 .macro ISRDY rd, dir           # rd <- (IN[dir] leggibile? 1 : 0)     (funct3=2)
     .insn i 0x0B, 0x2, \rd, x0, \dir
 .endm

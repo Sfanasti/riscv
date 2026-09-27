@@ -1,59 +1,37 @@
-# MAKEFILE 
+# MAKEFILE
 #
 #   make                                 compila build/neso
 #   make asm                             assembla ogni asm/*.s in build/
-#   make run  P=<prog> [R= C= N= DEFS=]  esegue sulla griglia senza interruzioni
-#   make step P=<prog> [R= C= N= DEFS=]  esegue un ciclo per INVIO
-#   make test [Q=10]                tutta la suite: canale, kernel, bordo,
-#                                        stencil, matmul
-#   make test-<nome> [Q=10]         un solo pezzo (prodcons, chain, nobp, ...)
+#   make run  P=<prog> [R= C= N= DEFS=]  esegue sulla griglia
+#   make step P=<prog> [R= C= N= DEFS=]  un ciclo per INVIO
+#   make test [Q=10]                     tutta la suite
+#   make test-<nome> [Q=10]              un solo test (prodcons, chain, ...)
 #   make clean
 #
 #   P      nome del .s in asm/, senza estensione     (es. P=prodcons)
 #   R C    righe e colonne della griglia             (default 1 2)
-#   N      tetto sui cicli: se lo tocca tronca l'esecuzione (default 200)
-#   DEFS   simboli passati all'assembler             (es. DEFS="--defsym RITARDO=25")
+#   N      tetto sui cicli                           (default 200)
+#   DEFS   simboli per l'assembler         (es. DEFS="--defsym RITARDO=25")
+#   BORDO  costante su ogni ingresso di bordo a ogni ciclo; senza, bordo
+#          vuoto. Le uscite di perimetro sono sempre drenate.
 #
-# I/O di bordo (l'host fa il vicino che le celle di perimetro non hanno):
-#   BORDO=<n>  alimenta OGNI ingresso di bordo con la costante n a ogni ciclo,
-#              cioè la condizione al contorno di Dirichlet dello stencil(qui Jacobi).
-#              Senza, il bordo resta vuoto.
-#   Le uscite di perimetro sono SEMPRE drenate (un OUT che nessuno consuma
-#   inchioda la cella): si stampa solo il totale, perché un kernel come lo
-#   stencil ne emette migliaia. Per un valore preciso, o per un contorno che
-#   varia per cella o nel tempo, si usa grid_push/grid_pop da C: si veda
-#   tests/test_bordo.c e tests/test_jacobi.c.
+# Variabili d'ambiente del simulatore:
+#   TRACE=1            traccia per istruzione (lenta)
+#   NOBP=1             canali senza controllo di flusso (case PCIO in risc.c)
+#   OMP_NUM_THREADS=n  thread di grid_step
 #
-# I parametri dei programmi (RITARDO, Q) stanno nei .s dentro .ifndef,
-# quindi hanno un default nel file e si sovrascrivono da qui con DEFS.
-#
-# Variabili d'ambiente lette dal simulatore:
-#   TRACE=1            riaccende la traccia per istruzione (spenta di default:
-#                      costava il 58% del tempo, e con grid_step parallelo il
-#                      lock di stdout serializzerebbe tutti i thread)
-#   NOBP=1             canale senza handshake, si veda il case PCIO in risc.c
-#   OMP_NUM_THREADS=n  quanti thread usa grid_step. =1 e' il riferimento per
-#                      calcolare lo speedup: stesso binario, stesso codice.
-#
-# Per una build seriale pura (senza libgomp), una volta sola e senza toccare
-# niente:  make clean && make CFLAGS="-Wall -Wextra -std=c11 -Isrc -O2"
+# Build seriale, senza libgomp:
+#   make clean && make CFLAGS="-Wall -Wextra -std=c11 -Isrc -O2"
 
 # ===== TOOLCHAIN E FLAG ====================================================
 
 CC      = gcc
 
-# -O2      la traccia spenta e l'ottimizzazione valgono 3,5x sul seriale
-#          (misurato: 122 -> 52 -> 35 ns per istruzione simulata)
-# -fopenmp serve sia in compilazione (traduce le #pragma di grid_step) sia in
-#          link (libgomp): CFLAGS è usata in entrambe, quindi basta qui.
-#          Senza, le #pragma restano direttive sconosciute e vengono ignorate:
-#          la stessa sorgente compila seriale, senza nessun #ifdef.
+# -fopenmp serve in compilazione e in link; senza, le #pragma sono ignorate
+# e la stessa sorgente compila seriale.
 CFLAGS  = -Wall -Wextra -std=c11 -Isrc -O2 -fopenmp
 AS      = riscv64-unknown-elf-as
 
-# matmul.s ha bisogno di 'mul' e alza ARCH da solo (si veda test-matmul), senza
-# concedere la M a tutti gli altri.
-#   make run P=matmul ARCH=rv32im R=2 C=2 N=500
 ARCH    ?= rv32i
 ASFLAGS  = -march=$(ARCH) -mabi=ilp32 -Iasm
 
@@ -86,7 +64,6 @@ build/%.o: asm/%.s | build
 # ===== ESECUZIONE ==========================================================
 .PHONY: run step
 
-
 R ?= 1
 C ?= 2
 N ?= 200
@@ -110,9 +87,7 @@ test-channel: tests/test_channel.c src/channel.h | build
 	./build/test_channel
 
 # --- catena: prodcons, nobp, chain -----------------------------------------
-# Il risultato non deve dipendere né dalla velocità relativa dei nodi
-# (RITARDI) né dalla lunghezza della catena (COLONNE). La somma attesa è
-# derivata da Q: make test Q=10
+# Somma attesa Q*(Q+1)/2 per ogni RITARDO e ogni lunghezza.
 RITARDI = 0 1 4 8 25 60
 COLONNE = 2 3 5 12
 Q ?= 5
@@ -130,10 +105,7 @@ test-prodcons: build/test_catena asm/prodcons.s
 	  ./build/test_catena build/pc_$$d.o 2 $(ATTESA) || exit 1; \
 	done
 
-# Misura del ready bit: stesso kernel, stesso sweep, senza controllo di
-# flusso (NOBP=1, vedi il case PCIO in risc.c). Una riga per RITARDO con la
-# somma MISURATA: dove si stacca da $(ATTESA), il lockstep ha perso dati.
-
+# Stesso sweep con NOBP=1: stampa la somma misurata invece di asserirla.
 test-nobp: build/test_catena asm/prodcons.s
 	@for d in $(RITARDI); do \
 	  $(AS) $(ASFLAGS) --defsym RITARDO=$$d --defsym Q=$(Q) \
@@ -153,15 +125,11 @@ test-chain: build/test_catena asm/chain.s
 	done
 
 # --- griglia: broadcast, memoria, bordo, reduce ----------------------------
-# Forme di griglia su cui il broadcast deve coprire TUTTE le celle.
-# 1x6 e 6x1 isolano i due cicli di cablaggio di grid_init (E-O e N-S). 
-# Le altre li mescolano.
+# 1x6 e 6x1 isolano i cablaggi E-O e N-S di grid_init.
 FORME  = 1x1 1x6 6x1 3x4 4x4 8x8 12x12
 VALORE ?= 7
 
-# Contorno di Dirichlet per lo stencil. 64 è una potenza di 2: la soluzione
-# esatta è 64 su tutta la griglia, quindi si legge a occhio se il campo è
-# arrivato o si è fermato prima.
+# Contorno dello stencil: la soluzione esatta vale VALORE_BORDO ovunque.
 VALORE_BORDO ?= 64
 
 build/test_broadcast: tests/test_broadcast.c $(SRC) src/*.h | build
@@ -174,16 +142,12 @@ test-broadcast: build/test_broadcast asm/broadcast.s
 	  ./build/test_broadcast build/bc.o $${f%x*} $${f#*x} $(VALORE) || exit 1; \
 	done
 
-# memtest.s si autoverifica e lascia il verdetto in s1, quindi gli basta
-# l'harness di broadcast.
-
+# memtest.s si autoverifica in s1: basta l'harness di broadcast.
 test-mem: build/test_broadcast asm/memtest.s
 	@$(AS) $(ASFLAGS) -o build/memtest.o asm/memtest.s || exit 1
 	@printf 'memtest,' >&2
 	@./build/test_broadcast build/memtest.o 1 1 $$((0x11223344))
 
-# Stesse forme del broadcast: 1x6 e 6x1 isolano i due estremi (catena di un solo
-# hop su ogni colonna / colonna unica lunga), le altre li mescolano.
 build/test_bordo: tests/test_bordo.c $(SRC) src/*.h | build
 	$(CC) $(CFLAGS) -o $@ tests/test_bordo.c src/risc.c src/grid.c src/elf.c
 
@@ -194,7 +158,7 @@ test-bordo: build/test_bordo asm/bordo.s
 	  ./build/test_bordo build/bordo.o $${f%x*} $${f#*x} $(VALORE) || exit 1; \
 	done
 
-# Il totale atteso lo ricava il test dalla forma, quindi qui bastano le forme.
+# Il totale atteso lo ricava il test dalla forma.
 build/test_reduce: tests/test_reduce.c $(SRC) src/*.h | build
 	$(CC) $(CFLAGS) -o $@ tests/test_reduce.c src/risc.c src/grid.c src/elf.c
 
@@ -206,11 +170,8 @@ test-reduce: build/test_reduce asm/reduce.s
 	done
 
 # --- stencil ---------------------------------------------------------------
-# Jacobi: ITER va scelto sulla tolleranza, e la tabella che il test stampa dice
-# a quale iterazione il campo raggiunge il punto fisso. 64 basta a far
-# convergere tutte le FORME con BORDO=64, così scatta anche l'asserzione che
-# il punto fisso è la soluzione vera (e non quella troncata).
-# SEMI: entrambi i campi iniziali previsti — 0 interno freddo, 1 campo r+c.
+# ITER fa convergere tutte le FORME, così il test asserisce anche la
+# soluzione esatta. SEMI: 0 = interno freddo, 1 = campo r+c.
 ITER  ?= 128
 SEMI  ?= 0 1
 
@@ -229,10 +190,7 @@ test-jacobi: build/test_jacobi asm/jacobi.s
 	done
 
 # --- matmul ----------------------------------------------------------------
-# La griglia RxC è la forma del risultato
-# K è la lunghezza del prodotto interno e di fatto l'unico parametro,
-# perché i dati arrivano dal bordo e non dalla .data.
-
+# K = lunghezza del prodotto interno; la griglia ha la forma di C.
 K ?= 1 4 7
 
 build/test_matmul: tests/test_matmul.c $(SRC) src/*.h | build
@@ -249,12 +207,7 @@ test-matmul: build/test_matmul asm/matmul.s
 	done
 
 # --- kernel sintetico ------------------------------------------------------
-# pesante.s non calcola niente di utile: PESO regola quante istruzioni di
-# calcolo stanno fra due comunicazioni, ed è la variabile con cui si misura
-# dove cade il punto di pareggio della parallelizzazione (si veda 'scala').
-# Qui basta che il risultato sia esatto, quindi ITER e PESO restano bassi:
-# lo sweep vero è in 'scala'.
-
+# Solo correttezza, con ITER e PESO bassi: lo sweep è in 'scala'.
 ITER_PESANTE ?= 8
 PESO         ?= 32
 
@@ -273,13 +226,8 @@ test-pesante: build/test_pesante asm/pesante.s
 # ===== MISURE ==============================================================
 .PHONY: dati
 
-# Le misure per la relazione.
-# I test stampano già una riga CSV per run su stderr, qui si aggiunge solo
-# l'intestazione e si raccoglie. CSV=1 zittisce le stampe multiriga
-# (mappa dell'attesa del broadcast, traccia dei delta di Jacobi) che
-# spezzerebbero il formato. Colonne documentate in docs/dati/README.md.
-#   make dati                       rigenera tutto
-#   column -t -s, docs/dati/*.csv   per leggerle a occhio
+# CSV per la tesi: una riga per run dagli harness, CSV=1 toglie le stampe
+# multiriga. Colonne in docs/dati/README.md.
 DATI = docs/dati
 CAT = cicli,ritentativi,attese
 
@@ -302,14 +250,8 @@ dati: build/test_catena build/test_broadcast build/test_bordo build/test_reduce 
 	@wc -l $(DATI)/*.csv
 
 # --- tempi di esecuzione ---------------------------------------------------
-# CSV a parte: qui la riga per run non la stampa l'harness ma il cronometro in
-# src/grid.c, acceso da TEMPI. Stesso sweep di make dati, ripetuto per ogni
-# numero di thread, quindi ogni kernel compare una volta per ogni valore di
-# THREAD e il confronto parallelo/seriale e' il rapporto fra righe omologhe.
-#   make tempi                  sweep completo su THREAD
-#   make tempi THREAD='1 8'     solo due punti
-# I CSV di make dati NON devono cambiare fra un thread e l'altro: se cambiano
-# e' il determinismo rotto, non una misura lenta.
+# Sweep di 'dati' ripetuto per ogni THREAD, riga scritta dal cronometro di
+# grid.c (TEMPI=<file>). Es.: make tempi THREAD='1 8'
 .PHONY: tempi
 THREAD  = 1 2 4 8 16
 KERNELS = chain broadcast bordo reduce jacobi matmul
@@ -326,24 +268,11 @@ tempi: build/test_catena build/test_broadcast build/test_bordo build/test_reduce
 	@column -t -s, $(DATI)/tempi.csv
 
 # --- il punto di pareggio della parallelizzazione ---------------------------
-# 'tempi' misura i kernel veri sulle FORME della suite, che si fermano a 12x12:
-# lì la griglia è troppo piccola perché il parallelo paghi, e infatti perde.
-# Questo sweep risponde a una domanda diversa: DOVE cade il pareggio, e come si
-# sposta al crescere del lavoro per cella. Per questo usa un solo kernel,
-# pesante.s, facendo variare PESO: è l'unica variabile che cambia il rapporto
-# fra calcolo e comunicazione a parità di tutto il resto.
-#   make scala                     sweep completo (qualche minuto)
+# Punto di pareggio di OpenMP al variare di PESO, con pesante.s.
+# Ripetizioni interlacciate (PESO più interno) perché la deriva della
+# macchina non si confonda con PESO; in analisi si prende il minimo.
 #   make scala SCALA_PESO=32       una sola curva
-# Ogni punto è ripetuto SCALA_REP volte e in analisi si prende il MINIMO: su una
-# macchina non dedicata il rumore può solo aggiungere tempo, mai toglierlo.
-# I cicli sono interlacciati apposta, con la ripetizione più esterna e PESO più
-# interno: eseguendo i PESO in blocchi separati, come si era fatto la prima
-# volta, ogni blocco cade in un momento diverso e una deriva della macchina si
-# traveste da effetto di PESO. Così invece la deriva colpisce tutte le
-# condizioni allo stesso modo e resta confrontabile ciò che va confrontato.
 .PHONY: scala
-# 40x40 e 56x56 non sono di riempimento: il pareggio cade fra 32 e 48, e senza
-# forme intermedie resta localizzato a un intervallo largo mezza ottava.
 SCALA_FORME  = 8x8 16x16 24x24 32x32 40x40 48x48 56x56 64x64 96x96 128x128 192x192 256x256
 SCALA_THREAD = 1 2 4 8 16
 SCALA_PESO   = 1 8 32
@@ -372,22 +301,14 @@ scala: build/test_pesante
 	@wc -l $(DATI)/scala.csv
 	@$(MAKE) -s grafici
 
-# Le coordinate del grafico di tesi vengono dal CSV, non trascritte a mano:
-# così i numeri del grafico non possono divergere dai dati.
+# Coordinate del grafico di tesi, generate da scala.csv.
 .PHONY: grafici
 grafici:
 	@python3 $(DATI)/grafici.py
 
 # --- il costo della sola località -------------------------------------------
-# Quanto costa simulare UNA istruzione al crescere della griglia, a un solo
-# thread: lì OpenMP non entra in gioco, quindi ciò che resta è il passo di
-# 16 KB fra celle contigue, che disperde lo stato caldo su una pagina per cella.
-# Il costo per cella-ciclo è t_step / (cicli * R * C), calcolato in analisi.
-#
-# ITER è accoppiato alla forma perché le righe siano confrontabili fra loro:
-# senza, una griglia piccola durerebbe millisecondi e una grande secondi, e il
-# confronto misurerebbe anche l'avviamento. I valori qui sotto puntano a due
-# secondi per run; se si cambia PESO vanno rifatti.
+# Costo per cella-ciclo al crescere della griglia, a un thread.
+# FORMA:ITER tarati per ~2 s a run; da rifare se cambia MEM_PESO.
 .PHONY: memoria
 MEM_FORME = 16x16:1000 32x32:300 48x48:90 64x64:37 96x96:15 128x128:8 192x192:3 256x256:2
 MEM_REP   = 1 2 3
@@ -409,14 +330,19 @@ memoria: build/test_pesante
 	done
 	@wc -l $(DATI)/memoria.csv
 
+# --- costo di apertura delle regioni parallele -------------------------------
+# Programma a sé, non il simulatore: è quello della nota di §5.7.2 e della
+# colonna "due regioni" di tab:crossover. I numeri dipendono dalla sessione.
+.PHONY: regioni
+regioni: build/bench_regioni
+	@./build/bench_regioni
+
+build/bench_regioni: docs/bench_regioni.c | build
+	$(CC) $(CFLAGS) -o $@ $<
+
 # --- l'intensità di calcolo a parità di cicli -------------------------------
-# 'scala' fa variare PESO tenendo fisso ITER, quindi le curve non eseguono lo
-# stesso numero di cicli e un residuo di costo di creazione dei thread resta
-# nel confronto. Qui i cicli sono pari per costruzione: PESO=1 con ITER=62 e
-# PESO=32 con ITER=8 fanno entrambi 2624 cicli (verificato, il target lo
-# riasserisce sotto), pur differendo di trentadue volte nelle istruzioni di
-# calcolo per comunicazione. Se lo speedup coincide, l'intensità di calcolo non
-# si vede: è il controllo del risultato negativo di sezione 5.7.3 della tesi.
+# Speedup a cicli pari: PESO=1/ITER=62 e PESO=32/ITER=8 fanno entrambi 2624
+# cicli (lo verifica l'awk finale).
 .PHONY: controllo
 CTL_FORME  = 32x32 48x48
 CTL_THREAD = 1 8

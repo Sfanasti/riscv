@@ -1,16 +1,12 @@
 # MAKEFILE HW
 #
 #   make          compila ed esegue i due testbench
-#   make lint     verilator --lint-only: SV pulito, non solo "iverilog-pulito"
-#   make stat     yosys: conteggio REALE dei flip-flop del canale
-#   make wave     apre il waveform del canale in gtkwave
+#   make lint     verilator --lint-only
+#   make stat     yosys: flip-flop del canale
+#   make wave     apre canale.vcd in gtkwave
 #   make clean
 #
-# Serve la toolchain:  sudo apt install iverilog gtkwave verilator yosys
-#
-# I moduli sono la controparte hardware di src/channel.h: neso_channel.sv e' il
-# canale, neso_if.sv e' l'interfaccia completa di una cella (quattro canali piu'
-# il decode delle quattro operazioni).
+# Toolchain: sudo apt install iverilog gtkwave verilator yosys
 
 IVFLAGS = -g2012 -Wall
 RTL     = neso_channel.sv neso_if.sv
@@ -30,22 +26,15 @@ sim-if: $(RTL) tb_neso_if.sv neso_defs.svh
 	@vvp tb_if
 
 # ===== CONTROLLO ===========================================================
-# iverilog e' permissivo: accetta in silenzio cose che un tool serio rifiuta.
-# Questo e' il controllo vero sulla conformita' SystemVerilog.
+# iverilog è permissivo: la conformità SystemVerilog la controlla verilator.
 
 lint: $(RTL)
 	verilator --lint-only -Wall --top-module neso_if $(RTL)
 	@echo "lint: OK"
 
 # ===== SINTESI =============================================================
-# Attesi 66 flip-flop: 32 di out_reg, 32 di pub_reg, wp e rp. Piu' una manciata
-# di porte, di cui XOR e XNOR sono i due comparatori isrdy/iswrt.
-#
-# La sintesi si ferma al canale perche' il frontend Verilog di yosys non regge
-# gli array packed multidimensionali nelle liste di porte, che neso_if usa per
-# tenere leggibile il fascio di fili. Non e' una perdita: neso_if istanzia
-# quattro canali e null'altro di sequenziale — il decode e' puramente
-# combinatorio (always_comb) — quindi sono esattamente 4 x 66 = 264 flip-flop.
+# Attesi 66 flip-flop (out_reg, pub_reg, wp, rp). Solo il canale: yosys non
+# legge le porte packed multidimensionali di neso_if, che ha 4 x 66 flip-flop.
 
 stat: neso_channel.sv
 	@yosys -p 'read_verilog -sv neso_channel.sv; synth -top neso_channel; stat' 2>&1 \

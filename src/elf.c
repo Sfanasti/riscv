@@ -40,11 +40,12 @@ uint8_t *load_elf(const char *path, long *size) {
 
     size_t bytes_read = fread(buffer, 1, (size_t)*size, f);
     if (bytes_read != (size_t)*size) {
-        if (ferror(f))
+        if (ferror(f)) {
             perror("Errore lettura file");
-        else
+        } else {
             fprintf(stderr, "Errore: file letto solo parzialmente (%zu/%ld byte)\n",
                     bytes_read, *size);
+        }
 
         free(buffer);
         fclose(f);
@@ -61,11 +62,7 @@ void carica_elf_in_risc(RISC_V *risc, uint8_t *elf_content, Elf32_Ehdr *header, 
 
     for (int i = 0; i < header->e_shnum; i++) {
         if (sections[i].sh_type == 1 && (sections[i].sh_flags & 2)) {
-            /*
-                la somma in uint64_t, non in uint32_t: due campi presi da un
-                file possono sommare oltre 2^32 e avvolgersi, passando una
-                guardia scritta sui soli 32 bit
-            */
+            /* in 64 bit: due campi a 32 bit possono sommare oltre 2^32 */
             if ((uint64_t)sections[i].sh_addr + sections[i].sh_size > sizeof(risc -> memory)) {
                 printf("Avviso: Sezione %d ignorata (fuori RAM)\n", i);
                 continue;
@@ -85,7 +82,7 @@ void carica_elf_in_risc(RISC_V *risc, uint8_t *elf_content, Elf32_Ehdr *header, 
 }
 
 void check_elf(uint8_t *content, long size) {
-     if (size < (long)sizeof(Elf32_Ehdr)) {
+    if (size < (long)sizeof(Elf32_Ehdr)) {
         fprintf(stderr, "Errore: file troppo corto per un header ELF32 (%ld byte)\n", size);
         exit(-1);
     }
@@ -104,7 +101,7 @@ void check_elf(uint8_t *content, long size) {
     }
 
     Elf32_Ehdr *h = (Elf32_Ehdr *)content;
-    
+
     if ((uint64_t)h->e_shoff + (uint64_t)h->e_shnum * h->e_shentsize > (uint64_t)size) {
         fprintf(stderr, "Errore: tabella delle sezioni fuori dal file\n");
         exit(-1);

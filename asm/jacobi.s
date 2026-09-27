@@ -1,45 +1,21 @@
 .option norvc
 .include "macros.s"
 
-# Stencil kernel: algoritmo in cui il valore di ogni elemento di una griglia viene 
-# aggiornato usando i valori dei suoi vicini.
+# Jacobi a 5 punti su griglia RxC: ITER volte u(r,c) <- media dei 4 vicini.
+# Kernel uniforme: il contorno arriva dall'host (BORDO=n), che drena anche
+# le uscite di perimetro.
+# Tutte le OUT precedono tutte le IN: evita il deadlock su canali di
+# profondità 1. Si spedisce il valore vecchio: Jacobi, non Gauss-Seidel.
 #
-# Jacobi a 5 punti su griglia RxC: u(r,c) -> media dei quattro vicini, ITER volte.
+# a0=riga a1=colonna a2=righe a3=colonne (da grid_init)
+# s1 = u   s2 = somma dei vicini   s3 = iterazioni rimaste
 #
-# Primo kernel completamente uniforme: nessun salto condizionato sulla
-# posizione, nemmeno ai margini. Le celle di perimetro leggono la condizione al
-# contorno dal canale di bordo come leggerebbero un vicino (l'host la alimenta
-# con BORDO=n) e pubblicano verso l'esterno come pubblicherebbero verso un
-# vicino (l'host drena). 
-# Da notare il contrasto con reduce.s, che deve chiedersi "sono la colonna 0?": la sua asimmetria è 
-# dell'algoritmo, non del bordo, e nessun supporto dell'host la toglierà mai.
-#
-# I quattro OUT vanno TUTTI prima dei quattro IN, e non è una preferenza
-# stilistica: è la condizione per cui il kernel non va in deadlock su canali
-# di profondità 1. Se tutte le celle fossero bloccate, quella all'iterazione
-# più bassa non potrebbe essere in spedizione (aspetterebbe qualcuno a
-# un'iterazione ancora inferiore), ovvero sarebbe in ricezione — ma una cella
-# in ricezione ha per costruzione già pubblicato tutti e quattro i suoi
-# valori, quindi ciò che aspetta c'è già. Contraddizione.
-# Ricevere prima di spedire va in deadlock al primo giro; alternare per
-# direzione si sblocca solo per come sono disposti i bordi.
-#
-# È appunto Jacobi, non Gauss-Seidel: si spedisce il valore VECCHIO prima di
-# calcolare il nuovo: tutti leggono l'iterazione k per produrre la k+1.
-#
-# Identità precaricata da grid_init: a0=riga a1=colonna a2=righe a3=colonne
-# s1 = u (valore corrente)   s2 = somma dei vicini   s3 = iterazioni rimaste
-#
-# PARAMETRI (default qui sotto, si sovrascrivono da fuori con --defsym):
-#   ITER   quante iterazioni di Jacobi --> default 32
-#   SEME   0 = interno freddo (u=0), 1 = campo iniziale u=r+c --> default 0
-#
-# La tolleranza sull'errore non vive qui: il riferimento in C di
-# tests/test_jacobi.c è esatto bit per bit, quindi max|u_k - u_k-1| calcolato
-# lì è la convergenza di questo kernel.
+# PARAMETRI (--defsym):
+#   ITER   iterazioni              (default 32)
+#   SEME   0: u=0, 1: u=r+c        (default 0)
 #
 # USO: make run P=jacobi R=4 C=4 N=4000 BORDO=64
-#      make test-jacobi ITER=64 BORDO=64
+#      make test-jacobi ITER=64 VALORE_BORDO=64
 
 .ifndef ITER
 .equ ITER, 32
@@ -52,11 +28,9 @@
 .global _start
 _start:
 .if SEME == 0
-    li      s1, 0               # interno freddo: il calore entra solo dal bordo
+    li      s1, 0               # interno freddo
 .else
-    add     s1, a0, a1          # campo iniziale r+c: aritmetica sulla posizione,
-                                # non controllo di flusso — resta un solo
-                                # percorso di esecuzione per tutte le celle
+    add     s1, a0, a1          # campo iniziale r+c
 .endif
     li      s3, ITER
 
@@ -94,16 +68,8 @@ iterazione:
     IN      t1, OVEST
     add     s2, s2, t1
 
-# ---- 3. media dei quattro, arrotondata al più vicino ----
-#
-# srai secco tronca, e la troncatura è un bias sistematico verso il
-# basso che crea un PUNTO FISSO SPURIO: quando i quattro vicini valgono B-1
-# il risultato resta B-1, quindi il campo si ferma sotto la soluzione e non ci arriva
-# più per nessun numero di iterazioni (misurato su 4x4 BORDO=64: stallo a 60..62 
-# anche a ITER=64). 
-# Con l'arrotondamento converge esatto a 64.
-# La somma di quattro valori sta larga fino a BORDO ~ 2^29, evitando dunque overflow.
-#
+# ---- 3. media arrotondata: (somma + 2) >> 2 ----
+# La sola troncatura ha un punto fisso spurio sotto la soluzione.
     addi    s2, s2, 2
     srai    s1, s2, 2
 

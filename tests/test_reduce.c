@@ -1,14 +1,7 @@
 /*
-    Verifica end-to-end di asm/reduce.s su griglia RxC.
+    Verifica di reduce.s su griglia RxC: parziali di riga e di colonna, e un
+    solo valore uscito dal bordo sud-est, pari alla somma di r+c.
     Uso: test_reduce <file.o> <righe> <colonne>
-
-    Il totale atteso lo ricava il test dalla forma della griglia, come fa 
-    il Makefile con la somma di prodcons.
-
-    Tre asserzioni:
-      - ogni cella non-ultima-colonna ha il prefisso della sua riga
-      - ogni cella dell'ultima colonna ha le righe 0..r sommate per intero
-      - dal bordo sud-est esce un solo valore, ed è il totale
 */
 
 #include <assert.h>
@@ -18,8 +11,8 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9                /* l'accumulatore (si veda REG_NAMES in risc.c) */
+#define MAX_CICLI 1000000   /* tetto: se lo tocca, il test fallisce */
+#define S1 9                /* l'accumulatore */
 
 int main(int argc, char **argv) {
     if (argc != 4) {
@@ -44,12 +37,12 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
-    /*
-        il risultato esce dal SUD dell'angolo sud-est: senza qualcuno che lo
-        consuma quella cella resterebbe bloccata sulla propria SETRDY
-    */
+    /* il totale esce dal SUD dell'angolo sud-est e va drenato */
     long totale = 0;
     int  usciti = 0, cicli = 0, vivi;
     do {
@@ -64,20 +57,17 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /*
-        l'ultima pubblicazione viene committata nel giro in cui il risc si ferma:
-        serve dunque un pop in più per raccoglierla
-    */
+    /* l'ultimo valore è visibile al commit del ciclo dell'ECALL */
     {
         uint32_t v;
         if (grid_pop(&g, rows - 1, cols - 1, SUD, &v)) { totale = (int32_t)v; usciti++; }
     }
 
-    /* qui muore un deadlock: una cella in attesa di un parziale che non arriva */
+    /* terminazione per ECALL, non per tetto */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
-    /* parziali di riga: la cella (r,c) ha sommato le colonne 0..c della sua riga */
+    /* la cella (r,c) ha sommato le colonne 0..c della sua riga */
     for (int r = 0; r < rows; r++) {
         long riga = 0;
         for (int c = 0; c < cols - 1; c++) {
@@ -86,7 +76,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* parziali di colonna: la cella (r,C-1) ha sommato le righe 0..r per intero */
+    /* la cella (r,C-1) ha sommato le righe 0..r per intero */
     long atteso = 0;
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
@@ -95,7 +85,7 @@ int main(int argc, char **argv) {
         assert((long)(int32_t)grid_at(&g, r, cols - 1) -> regs[S1] == atteso);
     }
 
-    assert(usciti == 1);        /* un solo risultato: né perso né duplicato */
+    assert(usciti == 1);        /* né perso né duplicato */
     assert(totale == atteso);
 
     unsigned ritentativi, attese;

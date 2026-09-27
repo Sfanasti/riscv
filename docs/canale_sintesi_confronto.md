@@ -414,10 +414,10 @@ l'eccesso. Il modello con un registro per lato costa **esattamente gli stessi 66
 
 ## 14. Controllo aperto
 
-`risultati.tex:796` dice 4227 cicli per Jacobi con "33 istruzioni per iterazione per 128
-iterazioni, più **due** cicli per il prologo e la terminazione". Ma $33 \times 128 = 4224$ e
-$4224 + 2 = 4226$. **Manca uno.** O il prologo è 3, o uno dei due fattori è diverso.
-Verificare prima del confronto.
+**Chiuso (2026-09-12).** Il prologo di `jacobi.s` è di due istruzioni e la terminazione di
+una: $2 + 33 \times 128 + 1 = 4227$, il valore misurato. Il testo diceva "due cicli per il
+prologo e la terminazione" e ora dice "due cicli di prologo e uno di terminazione". Stesso
+errore, corretto, per il 19 di `matmul`: è $2 + 16 + 1$, prima iterazione compresa.
 
 Da verificare anche sul PDF compilato: i riferimenti a tabelle 5.3 e 5.6 e alla sezione
 5.5.1 citati in email.
@@ -614,8 +614,16 @@ direzione, entrambe per lo stesso identico motivo:
 
 | | previsione (35 ns) | misura | rifatta col costo giusto |
 |---|---|---|---|
-| rapporto a $12\times12$ | $0{,}28\times$ | $0{,}175\times$ | $\mathbf{0{,}179\times}$ (22,5 ns) |
-| punto di pareggio | $24\times24$ | $40\times40$ | **appena sotto** $\mathbf{40\times40}$ (16–23 ns) |
+| speedup a 8 thread su $12\times12$ | $0{,}27\times$ | $0{,}175\times$ | $\mathbf{0{,}175\times}$ (22,5 ns) |
+| punto di pareggio | intorno a $26\times26$ | fra $32\times32$ e $40\times40$ | **appena sotto** $\mathbf{40\times40}$ (16–23 ns) |
+
+> **Aggiornato il 2026-09-12.** La prima versione di questa tabella riportava $0{,}28$ e
+> $0{,}179$, che sono il *rapporto* $W/O$ e non lo speedup: la didascalia della tabella 5.8
+> avverte che le due grandezze sono diverse. Lo speedup è $W/(W/p + O)$. Il pareggio previsto
+> a $24\times24$ era dove $W/O = 1$; il criterio giusto è $W/O = p/(p-1)$, cioè $8/7$ a otto
+> thread, che dà circa $26\times26$. Il $0{,}175$ vale sui minimi delle due esecuzioni di
+> $12\times12$; sull'altra esecuzione la previsione dà $0{,}20\times$ contro $0{,}18\times$.
+> La tesi è già corretta in questo senso (§5.7.2, §5.7.3, §6.2).
 
 Entrambe le rifatture cadono sulla misura. **Questo è il "concordano": non è il modello a
 sbagliare, è il numero che gli si dava in ingresso.** I due conti sono a
@@ -627,13 +635,14 @@ cadano i due accordi, e soprattutto **senza dire che è una sola causa a spiegar
 scarti**.
 
 > **Sostituzione.** Il modello analitico prevede lo speedup come $W/(W/p + O)$, e le due
-> previsioni che ne erano state tratte cadevano entrambe lontano dalla misura: $0{,}28\times$
-> contro $0{,}175\times$ per il rapporto su $12\times12$, e $24\times24$ contro $40\times40$
-> per il punto di pareggio. Lo scarto ha una causa sola, e non è il modello: entrambe
-> assumevano 35 ns per istruzione simulata, un valore misurato su $64\times64$ dove la
-> località è peggiore. Rifatte con il costo misurato sulla forma che si sta predicendo —
-> 22,5 ns su $12\times12$, fra 16 e 23 nell'intervallo del pareggio — danno $0{,}179\times$ e
-> una collocazione appena sotto $40\times40$, cioè le due misure. Il modello è corretto; a non
+> previsioni che ne erano state tratte cadevano entrambe lontano dalla misura: uno speedup
+> di $0{,}27\times$ contro $0{,}175\times$ su $12\times12$, e un pareggio intorno a
+> $26\times26$ contro quello misurato fra $32\times32$ e $40\times40$. Lo scarto ha una causa
+> sola, e non è il modello: entrambe assumevano 35 ns per istruzione simulata, un valore
+> misurato su $64\times64$ dove la località è peggiore. Rifatte con il costo misurato sulla
+> forma che si sta predicendo — 22,5 ns su $12\times12$, fra 16 e 23 nell'intervallo del
+> pareggio — danno $0{,}175\times$ e una collocazione appena sotto $40\times40$, cioè le due
+> misure. Il modello è corretto; a non
 > esserlo era il costo per istruzione che gli si dava in ingresso.
 
 ### 19.2 Che cosa "si semplifica"
@@ -685,7 +694,11 @@ for (ogni passo) {
 ```
 
 Una sola apertura per tutta la simulazione, e per ciclo restano **due barriere**: la squadra
-esiste già e deve solo ritrovarsi.
+esiste già e deve solo ritrovarsi. *(Aggiornato il 2026-09-12: restano anche le
+sincronizzazioni della parte seriale fra un passo e l'altro, cioè ingresso-uscita di bordo e
+controllo di terminazione in `main.c`, che dentro una regione aperta andrebbero eseguite da un
+solo thread. Il riuso dei thread da parte di libgomp è verificato: gli stessi TID servono
+tutte le regioni successive.)*
 
 **Perché abbassa il pareggio:** il pareggio è dove lo speedup vale 1, cioè dove
 $W/p + O = W$, cioè $O = W\frac{p-1}{p}$. A otto thread $W = \frac{8}{7}O$, ed è esattamente
@@ -811,9 +824,8 @@ due misure senza ripeterne nessuna.
 
 ## 25. Stato e controlli aperti
 
-- **§14 resta aperto**: l'off-by-one su Jacobi ($33 \times 128 + 2 = 4226$ contro 4227
-  riportati). Non ci è ancora arrivato — si è fermato a §5.5.1 — quindi c'è tempo, ma è
-  esattamente il tipo di errore che ha già preso una volta.
+- **§14 chiuso** (2026-09-12): il conto è $2 + 33 \times 128 + 1 = 4227$, e il testo ora lo
+  dice.
 - Verificare sul PDF compilato i riferimenti a tabelle 5.3 e 5.6 e a §5.5.1 citati in email.
 - Il "No" di §21.
 - Restano da leggere da parte sua: §5.6, §5.7 e le sottosezioni finali del cap. 5.

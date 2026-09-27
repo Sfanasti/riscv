@@ -17,7 +17,7 @@
     \vspace{1cm}
     {\large {LAUREA TRIENNALE IN INFORMATICA}}\\
     \vspace{2cm}
-    {\Large {Simulatore di un array sistolico bi-dimensionale\\ basato su RISC-V}}
+    {\Large {Simulatore di un array sistolico bidimensionale\\ basato su RISC-V}}
 \end{center}
 
 \vspace{2cm}
@@ -48,8 +48,12 @@
 \include{implementazione}
 \include{risultati}
 \ifconclusioni\include{conclusioni}\fi
+\include{appendici}
 
-\bibliographystyle{plain} % We choose the "plain" reference style
+% La bibliografia di plain è un \chapter* e non entra da sola nell'indice
+\clearpage
+\addcontentsline{toc}{chapter}{Bibliografia}
+\bibliographystyle{unsrt} % numerata nell'ordine di prima citazione
 \bibliography{bibliography} % Entries are in the refs.bib file
 %\addbibresource{bibliography.bib}
 %\printbibliography

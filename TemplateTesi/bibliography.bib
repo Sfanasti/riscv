@@ -3,16 +3,16 @@
 % Il punto di partenza: l'interprete a singolo processore %
 @mastersthesis{TesiStella,
     author = {Andolfo, Stella},
-    title = {Simulatore Multi-Core RISC-V con Estensioni ISA per la Comunicazione tra Core},
+    title = {Simulatore Multi-Core {RISC-V} con Estensioni {ISA} per la Comunicazione tra Core},
     school = {Università di Pisa, Dipartimento di Informatica},
-    type = {Tesi di Laurea Triennale in Informatica},
+    type = {{Tesi di Laurea Triennale in Informatica}},
     year = {2026}
 }
 
 % La specifica dell'architettura %
 @techreport{RiscvSpec,
     author = {Waterman, Andrew and Asanović, Krste},
-    title = {The RISC-V Instruction Set Manual, Volume I: Unprivileged ISA},
+    title = {The {RISC-V} Instruction Set Manual, \mbox{volume} {I}: Unprivileged {ISA}},
     institution = {RISC-V International},
     year = {2019},
     note = {Documento versione 20191213}
@@ -25,6 +25,47 @@
     organization = {Free Software Foundation},
     year = {2024},
     note = {\url{https://sourceware.org/binutils/docs/}}
+}
+
+% La toolchain hardware open source %
+@misc{IcarusVerilog,
+    author = {Williams, Stephen},
+    title = {Icarus {Verilog}},
+    howpublished = {\url{https://steveicarus.github.io/iverilog/}},
+    year = {2026},
+    note = {Versione 12.0; pagina aggiornata al 22 settembre 2026}
+}
+
+@misc{Verilator,
+    author = {Snyder, Wilson},
+    title = {Verilator},
+    howpublished = {\url{https://www.veripool.org/verilator/}},
+    year = {2026},
+    note = {Versione 5.020; pagina aggiornata al 28 febbraio 2026}
+}
+
+@misc{Yosys,
+    author = {{YosysHQ}},
+    title = {Yosys Open {SYnthesis} Suite},
+    howpublished = {\url{https://yosyshq.net/yosys/}},
+    year = {2026},
+    note = {Versione 0.33; pagina aggiornata al 24 agosto 2026}
+}
+
+% Il termine GALS e i sistemi a clock indipendenti %
+@phdthesis{Chapiro1984,
+    author = {Chapiro, Daniel M.},
+    title = {Globally-Asynchronous Locally-Synchronous Systems},
+    school = {Stanford University},
+    year = {1984}
+}
+
+@misc{VitisHLS,
+    author = {{AMD}},
+    title = {Vitis {HLS}},
+    howpublished = {\url{https://www.amd.com/en/products/software/adaptive-socs-and-fpgas/vitis/vitis-hls.html}},
+    year = {2026},
+    note = {Pagina aggiornata al 24 settembre 2026}
 }
 
 % La dicotomia livelli/transizione negli handshake %
@@ -42,7 +83,7 @@
 % Gli array sistolici %
 @inproceedings{KungLeiserson,
     author = {Kung, H. T. and Leiserson, Charles E.},
-    title = {Systolic Arrays (for VLSI)},
+    title = {Systolic Arrays (for {VLSI})},
     booktitle = {Sparse Matrix Proceedings 1978},
     pages = {256--282},
     publisher = {Society for Industrial and Applied Mathematics},
@@ -78,7 +119,7 @@
 @inproceedings{Amdahl,
     author = {Amdahl, Gene M.},
     title = {Validity of the single processor approach to achieving large
-             scale computing capabilities},
+             \mbox{scale} computing capabilities},
     booktitle = {Proceedings of the April 18--20, 1967, Spring Joint
                  Computer Conference (AFIPS '67)},
     pages = {483--485},
@@ -101,9 +142,9 @@
 % Il modello di programmazione parallela %
 @techreport{OpenMP,
     author = {{OpenMP Architecture Review Board}},
-    title = {OpenMP Application Programming Interface, Version 5.2},
+    title = {OpenMP Application Programming Interface, Version 4.5},
     institution = {OpenMP Architecture Review Board},
-    year = {2021}
+    year = {2015}
 }
 
 @book{HennessyPatterson,

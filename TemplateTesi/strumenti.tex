@@ -10,7 +10,7 @@ tiene insieme.
 \section{RISC-V e il sottoinsieme RV32I}
 \label{sec:riscv}
 
-RISC-V è una architettura dell'insieme di istruzioni (\emph{Instruction
+RISC-V è un'architettura dell'insieme di istruzioni (\emph{Instruction
 Set Architecture}, ISA) aperta, organizzata come un nucleo base
 obbligatorio e un insieme di estensioni opzionali~\cite{RiscvSpec}. Il
 nucleo intero a 32 bit, RV32I, conta poche decine di istruzioni: \emph{load} e \emph{store},
@@ -41,8 +41,12 @@ l'assemblatore deve rifiutarla prima ancora che il programma venga
 eseguito. L'unica eccezione è il programma di moltiplicazione di
 matrici, che ha bisogno dell'istruzione \texttt{mul}: la regola di
 compilazione del suo solo file oggetto sovrascrive \texttt{ARCH} a
-\texttt{rv32im}, mentre il default \texttt{rv32i} resta invariato per
-tutti gli altri bersagli di compilazione.
+\texttt{rv32im}, abilitando così l'estensione M. La deroga riguarda il
+solo assemblatore: l'interprete decodifica l'intero RV32IM, ereditato
+dall'interprete di partenza~\cite{TesiStella}, e la moltiplicazione è
+quindi eseguita come qualunque altra istruzione. Il default
+\texttt{rv32i} resta invariato per tutti gli altri \emph{target} di
+compilazione.
 
 \subsection{Lo spazio di codifica \emph{custom-0}}
 \label{sec:custom0}
@@ -68,31 +72,29 @@ sezione~\ref{sec:istruzioni}.
 
 Per emetterle non è stato necessario modificare l'assemblatore. La direttiva
 \texttt{.insn} di GNU Binutils~\cite{Binutils} esiste proprio per gli opcode
-custom e permette di scrivere una istruzione dando i campi di codifica;
-avvolta in una macro, si usa poi come una istruzione qualsiasi:
+custom e permette di scrivere un'istruzione dando i campi di codifica;
+avvolta in una macro, si usa poi come un'istruzione qualsiasi:
 
 \begin{lstlisting}[caption={La macro con cui il programma della cella emette \texttt{ISRDY}},label={lst:macro},language=RISCV,float=htbp]
 .macro ISRDY rd, dir
     .insn i 0x0B, 0x2, \rd, x0, \dir
 .endm
 \end{lstlisting}
-La toolchain resta quella ufficiale e non modificata: non è stato necessario
-ricompilare l'assemblatore per aggiungere supporto alle quattro istruzioni, e
-i file assembly restano assemblabili da chiunque disponga della toolchain
-RISC-V standard.
+La toolchain resta quindi quella ufficiale, e i file assembly restano
+assemblabili da chiunque disponga della toolchain RISC-V standard.
 
 \section{C, assembly e il sistema di build}
 \label{sec:c-assembly}
 
-Il simulatore è scritto in C, come l'interprete a singolo processore da
+Il simulatore è scritto in C, come l'interprete del singolo processore da
 cui il progetto è partito~\cite{TesiStella}. Il canale è un oggetto di
-poche decine di byte di cui interessa il \emph{layout} esatto, e il
+sedici byte di cui interessa il \emph{layout} esatto, e il
 ciclo di simulazione lo visita milioni di volte: è realizzato
 interamente con funzioni \texttt{static inline} in un solo file di
 intestazione, così il compilatore le espande nel punto di chiamata e il
 costo dell'astrazione sparisce.
 
-I programmi che girano sull'array sono in assembly RISC-V: le istruzioni
+I programmi che girano sull'array sono in assembly RISC-V. Le istruzioni
 di comunicazione non esistono in nessun linguaggio di livello superiore, e
 la logica di sincronizzazione (attendere che un canale sia pronto,
 ritentare una pubblicazione rifiutata) è quindi scritta nel programma
@@ -100,33 +102,38 @@ assembly stesso, non nell'interprete, che si limita a eseguire l'istruzione
 e a restituirne l'esito.
 
 Il tutto è gestito da un \emph{Makefile} che compila l'interprete,
-assembla e collega i programmi in file ELF, li carica nella griglia, esegue la
+assembla i programmi in file oggetto ELF, li carica nella griglia, esegue la
 suite di verifica e rigenera i dati delle misure. Le prove non sono esecuzioni
-singole ma un \emph{parameter sweeping} (da qui in avanti semplicemente \emph{sweep}): 
+singole ma un \emph{parameter sweep} (da qui in avanti semplicemente \emph{sweep}): 
 ogni programma viene eseguito una volta per ciascuna combinazione dei parametri che
-lo riguardano, e ogni esecuzione stampa una riga in formato CSV. 
-La composizione dello sweep è nella sezione~\ref{sec:metodologia}. I file ELF sono prodotti dalla
-catena \texttt{riscv64-unknown-elf} configurata per \texttt{rv32i}, e caricati
-dal simulatore con un lettore ELF minimale.
-
-\section{SystemVerilog e la catena di strumenti hardware}
+lo riguardano, cioè la forma della griglia (numero di righe e di colonne) e i
+parametri propri del programma, per esempio la lunghezza $K$ del prodotto interno
+per \texttt{matmul} o il numero di iterazioni per \texttt{jacobi}; ogni esecuzione
+stampa una riga in formato CSV.
+La composizione dello sweep è nella sezione~\ref{sec:metodologia}. I file ELF sono prodotti dalla toolchain \texttt{riscv64-unknown-elf} configurata per \texttt{rv32i}
+(\texttt{rv32im} per \texttt{matmul}), e caricati
+dal simulatore con un caricatore ELF minimale.
+\clearpage
+\section{SystemVerilog e la toolchain hardware}
 \label{sec:systemverilog}
+% La fine del capitolo lasciava due righe da sole su una pagina.
+\enlargethispage{2\baselineskip}
 
 Il protocollo è nato come modello in C, ma il suo scopo è descrivere un
 circuito. Il canale e l'interfaccia di comunicazione di una cella sono
 stati perciò riscritti in SystemVerilog, per misurare il costo
 dell'interfaccia in termini di flip-flop e di porte logiche.
 
-La catena usata è interamente libera e si compone di tre strumenti con tre ruoli
+La toolchain usata è interamente open source e si compone di tre strumenti con tre ruoli
 distinti:
 
 \begin{itemize}
-    \item \emph{Icarus Verilog} esegue i due \emph{testbench}, che ripercorrono
+    \item \emph{Icarus Verilog}~\cite{IcarusVerilog} esegue i due \emph{testbench}, che ripercorrono
           sul modello RTL gli stessi casi limite già verificati sul modello C;
-    \item \emph{Verilator}, in modalità \texttt{-{}-lint-only}, controlla la
+    \item \emph{Verilator}~\cite{Verilator}, in modalità \texttt{-{}-lint-only}, controlla la
           conformità del codice. È più severo di Icarus, che accetta in silenzio
           costrutti che uno strumento di sintesi rifiuterebbe;
-    \item \emph{Yosys} sintetizza il canale e ne riporta la statistica di
+    \item \emph{Yosys}~\cite{Yosys} sintetizza il canale e ne riporta la statistica di
           celle. È lo strumento utilizzato per i numeri della sezione~\ref{sec:rtl}.
 \end{itemize}
 
@@ -135,15 +142,15 @@ distinti:
 
 Il simulatore fa avanzare $R \times C$ processori che per costruzione non
 condividono memoria, e li fa avanzare tutti dello stesso passo. È il caso
-tipico di parallelismo di dati, e OpenMP è lo strumento adatto proprio perché
+tipico di parallelismo di dati, e OpenMP~\cite{OpenMP} è lo strumento adatto proprio perché
 richiede pochissimi interventi per parallelizzare il codice del simulatore: 
 le due fasi del ciclo di clock sono due cicli \texttt{for} sull'array delle celle, 
 e diventano paralleli con la semplice introduzione di una direttiva \texttt{\#pragma 
-omp parallel for} per ciascuno dei due for.
+omp parallel for} per ciascuno dei due cicli.
 
 La direttiva non richiede alcun meccanismo di sincronizzazione
 aggiuntivo: nessun \emph{lock}, nessuna sezione critica, nessuna
-riduzione. La ragione sta nella struttura del ciclo di clock ed è
+riduzione. La ragione sta nella struttura del ciclo di clock che regola il funzionamento del simulatore ed è
 discussa nella sezione~\ref{sec:parallelizzazione}: la barriera implicita
 a fine ciclo parallelo, che OpenMP fornisce di serie, coincide
 esattamente con la separazione fra le due fasi.

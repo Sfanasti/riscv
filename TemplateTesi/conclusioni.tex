@@ -3,11 +3,13 @@
 \label{ch:conclusioni}
 
 Il lavoro consegna due risultati, uno sull'array simulato e uno sul simulatore
-che lo esegue. Il primo riguarda il canale ed è il principio enunciato nel
-capitolo~\ref{ch:introduzione}; il secondo riguarda il ciclo di clock
-parallelizzato e ne individua il regime di convenienza. Le due sezioni che
-seguono li riprendono uno per uno, la terza indica gli sviluppi che le misure
-lasciano aperti.
+che lo esegue. Il primo riguarda il canale con \emph{ready bit} proposto nel
+capitolo~\ref{ch:introduzione}, e ne verifica il principio, ovvero che la correttezza
+della comunicazione non dipende più dalla schedulazione. Il secondo riguarda la
+parallelizzazione della simulazione del singolo ciclo di clock, e ne individua
+i limiti di scalabilità. Le due sezioni che seguono li riprendono uno per uno,
+la terza indica gli sviluppi che le misure lasciano aperti.
+
 
 \section{Il \emph{ready bit} al posto della schedulazione}
 \label{sec:sintesi-finale}
@@ -15,102 +17,132 @@ lasciano aperti.
 Il principio enunciato nel capitolo~\ref{ch:introduzione} è verificato nella
 forma seguente. Sullo stesso programma e con gli stessi parametri, il risultato
 ottenuto con il \emph{ready bit} è corretto per ogni velocità relativa dei nodi e
-per ogni lunghezza della catena; senza, è corretto soltanto quando il consumatore
-è abbastanza veloce, e negli altri casi l'array produce un risultato
-numericamente definito ma errato, che nessun componente rileva. Ciascun lato del
+per ogni lunghezza della catena; senza, è corretto soltanto se i due nodi
+procedono allo stesso ritmo e partono allineati, cioè se il consumatore esegue
+ogni lettura dopo la pubblicazione del valore corrispondente e prima di quella
+successiva. Nella misura della sezione~\ref{sec:nobp} le due condizioni valgono
+insieme soltanto a ritardo zero, dove i due cicli costano sei istruzioni per
+valore ciascuno; negli altri casi l'array produce un risultato numericamente
+definito ma errato, che nessun componente rileva. Ciascun lato del
 canale commuta soltanto il proprio registro da un bit ed è il confronto fra i
 due, e non il valore dell'uno o dell'altro, a stabilire se il canale sia pieno o
 vuoto: nessuno dei due lati conosce il comportamento temporale dell'altro, e la
 correttezza cessa di dipendere dalla schedulazione con cui l'host alimenta
 l'array.
 
-Il costo si misura su due assi. In cicli è nullo: da ritardo uno in poi le due
-modalità impiegano lo stesso numero di cicli, perché il tempo lo
-consuma il consumatore lento e non il protocollo; a ritardo zero il
-\emph{lockstep} risparmia otto cicli su quarantacinque, ed è anche l'unica
-configurazione in cui non perde dati, cioè l'unica in cui il \emph{ready bit}
-non serviva. In area lo quantifica la sintesi del
-modello RTL (sezione~\ref{sec:rtl}): 66 flip-flop e 6 porte
+Il costo del \emph{ready bit} si misura su due assi: i cicli di clock
+impiegati e l'area, cioè la quantità di logica che il canale richiede una volta
+realizzato in hardware, contata in flip-flop, porte logiche e collegamenti. In
+termini di cicli impiegati il costo è nullo da ritardo uno in poi: le due modalità impiegano lo stesso numero di cicli, perché i cicli di clock li impiega il consumatore lento e non il protocollo. A ritardo zero il \emph{lockstep} risparmia otto
+cicli su quarantacinque, ed è anche l'unica configurazione in cui non perde
+dati, cioè l'unica in cui il \emph{ready bit} non serviva. In termini di area il
+costo lo quantifica la sintesi del modello RTL (sezione~\ref{sec:rtl}): 66 flip-flop e 6 porte
 combinatorie per canale, di cui 64 flip-flop sono i due registri dati da 32 bit
 e due sono i contatori, mentre le sei porte sono lo XOR e lo XNOR dei due
-comparatori più quattro abilitazioni. Lo stato di sincronizzazione in senso
+comparatori più quattro porte per gli \emph{enable}. Lo stato di sincronizzazione in senso
 stretto è quindi di due flip-flop per canale, mentre il secondo registro dati è
 una conseguenza dell'asimmetria fra \texttt{OUT} e \texttt{SETRDY}, poiché il
 valore appena caricato e quello pubblicato e non ancora letto possono differire
-nello stesso istante. Fra due celle adiacenti corrono 68 fili.
+nello stesso istante. Fra due celle adiacenti occorrono 68 collegamenti da 1 bit.
 
-\section{L'efficienza della parallelizzazione dipende dalla sola dimensione
+\section{L'efficienza della simulazione parallela dipende dalla sola dimensione
          della griglia}
 
-Il secondo risultato riguarda il simulatore. Il ciclo di clock si parallelizza
-senza una sola sezione critica, e il guadagno che se ne ottiene è determinato
-dal solo prodotto $R \cdot C$: il lavoro di un ciclo sono $R \cdot C$ istruzioni
-simulate, il costo da pagare per distribuirlo sono le due regioni parallele che
-il ciclo apre, e il pareggio cade dove le due grandezze si eguagliano.
+Il secondo risultato riguarda il simulatore. La simulazione di un singolo ciclo
+di clock si parallelizza senza alcuna sezione critica, e il guadagno che se ne
+ottiene è determinato dal solo prodotto $R \cdot C$. Il lavoro di un ciclo sono
+$R \cdot C$ istruzioni simulate, e il costo da pagare per distribuirlo fra i
+thread è quello delle due regioni parallele che il ciclo apre, una per la fase
+di calcolo e una per quella di aggiornamento: il \emph{crossover point} cade
+dove il primo supera il secondo del fattore $p/(p-1)$, che a otto thread vale
+$8/7$ (sezione~\ref{sec:parallelo}).
 
-Il pareggio è misurato a $40\times40$, e la sezione~\ref{sec:pareggio} mostra
-che la collocazione è stretta perché cade fra due forme contigue dello sweep
-per tutti e tre i valori dell'intensità di calcolo. La previsione analitica lo
-collocava a $24\times24$, ma lo scostamento non è del modello: la previsione
-assume un costo per istruzione simulata misurato su una griglia molto più
-grande, dove la località è peggiore, e rifatta con il costo della forma giusta
-colloca il pareggio dove è stato misurato. Il modello analitico e la misura
-concordano quindi sia sul rapporto a $12\times12$ sia sul punto di pareggio.
+Il \emph{crossover point} cade fra $32\times32$ e $40\times40$: fra le griglie simulate,
+$32\times32$ è la più grande su cui l'esecuzione parallela è ancora più lenta di
+quella seriale, e $40\times40$ la più piccola su cui è più veloce. Le due
+dimensioni sono consecutive nell'elenco di quelle misurate, quindi la
+collocazione non dipende da un'interpolazione, e vale per tutti e tre i valori
+dell'intensità di calcolo (sezione~\ref{sec:crossover}).
+
+La previsione analitica della sezione~\ref{sec:parallelo} lo collocava invece
+intorno a $26\times26$. Lo scostamento non è della formula di previsione ma del
+dato che le si fornisce: la previsione usa per ogni griglia lo stesso costo per
+istruzione simulata, 35\,ns, misurato su $64\times64$, mentre quel costo cresce
+con la dimensione della griglia (tabella~\ref{tab:memoria}). Rifatta con il
+costo misurato su ciascuna dimensione, cioè 22,5\,ns su $12\times12$ e fra 16 e
+23\,ns fra $32\times32$ e $48\times48$, la stessa formula prevede su $12\times12$
+lo speedup misurato e colloca il \emph{crossover point} appena sotto $40\times40$, fra le due
+griglie fra le quali è stato misurato.
 
 Che l'intensità di calcolo non compaia in quel rapporto discende dal disegno del
-ciclo di clock, che è per costruzione \emph{una istruzione per cella}: il numero
-di cicli si semplifica nel rapporto fra tempo seriale e tempo parallelo. Il
+ciclo di clock, che è per costruzione \emph{un'istruzione per cella}: qualunque
+programma le celle eseguano, un ciclo costa $R \cdot C$ istruzioni simulate.
+Tempo seriale e tempo parallelo sono quindi entrambi il numero di cicli per il
+costo di un ciclo, e nello speedup, che è il loro rapporto, il numero di cicli si
+elide: un programma più intenso esegue più cicli, ma non cicli più pesanti. Fa
+eccezione il costo di creazione dei thread, che si paga una volta per esecuzione
+e che un programma con più cicli ammortizza meglio: è la ragione dello scarto
+fra le tre curve della figura~\ref{fig:crossover}, e il controllo a parità di
+cicli della sezione~\ref{sec:crossover} lo rimuove. Il
 programma \texttt{pesante}
 (sezione~\ref{sec:kernel-pesante}) verifica questa proprietà dove sarebbe più
 visibile smentirla: trentadue volte le istruzioni di calcolo per ogni
-comunicazione non spostano il pareggio di una forma, e il controllo a parità di
+comunicazione non spostano il \emph{crossover point} di una forma, e il controllo a parità di
 cicli non lascia un effetto residuo che la misura risolva. La misura del
-pareggio si estende quindi ai programmi in cui le celle terminano insieme: per
+\emph{crossover point} si estende quindi ai programmi in cui le celle terminano insieme: per
 questi, al di sopra di $40\times40$ l'aggiunta di thread accelera il ciclo di
-clock qualunque cosa stiano eseguendo, e non occorre rimisurare il pareggio per
+clock qualunque cosa stiano eseguendo, e non occorre rimisurare il \emph{crossover point} per
 ognuno. Resta fuori il caso della terminazione sfalsata, perché la fase di
 calcolo salta le celle già ferme e il lavoro per ciclo scende allora sotto
-$R \cdot C$ distribuendosi male su una ripartizione statica; entrambi i
-programmi su cui il pareggio è misurato hanno terminazione uniforme, quindi la
-suite non lo esercita. La conseguenza
-operativa è che per spostarlo non serve un programma diverso, serve una griglia
-più grande oppure una regione parallela che non si riapra a ogni ciclo.
+$R \cdot C$ distribuendosi male su una ripartizione statica; \texttt{pesante}, il programma su cui il \emph{crossover point} è misurato, ha
+terminazione uniforme, quindi la
+suite non lo esercita.
+
+La conseguenza operativa è che per spostarlo non serve un programma diverso,
+serve una griglia più grande oppure una regione parallela che resti aperta per
+tutta l'esecuzione. Il runtime di OpenMP conserva già i thread fra una regione e
+l'altra in un \emph{thread pool}, quindi riaprire una regione non li crea ma li
+risveglia e li risincronizza; è questo costo, pagato due volte per ciclo, che la
+modifica eliminerebbe. Resterebbero le sincronizzazioni che ogni ciclo richiede
+comunque: le barriere fra le due fasi e l'attesa della parte seriale di
+ingresso-uscita, che dentro una regione aperta andrebbe eseguita da un solo
+thread.
 
 Le forme della suite di verifica si fermano a $12\times12$ e cadono quindi tutte
-al di sotto del pareggio, dove la perdita arriva a poco più di un decimo della
-velocità seriale. Sono le dimensioni che il compito di quello sweep richiede,
+al di sotto del \emph{crossover point}: su $12\times12$ lo stencil a otto thread va 5,7 volte
+più lento che a uno solo. Sono le dimensioni che il compito di quello sweep richiede,
 per la ragione data nella sezione~\ref{sec:metodologia}: quello sweep verifica
 la correttezza e non le prestazioni.
 
 Il tetto asintotico non è quello di Amdahl ma la località. La frazione
-seriale scende dal $10{,}1\,\%$ su $8\times8$ allo $0{,}64\,\%$ su
+seriale, misurata a un thread, scende dal $10{,}1\,\%$ su $8\times8$ allo $0{,}64\,\%$ su
 $256\times256$, cioè si allontana esattamente nella direzione in cui l'array
-diventa conveniente; nella stessa direzione il costo di simulare una istruzione
-più che quintuplica, da 15,9 a 83,4\,ns, a un solo thread e a parità di lavoro
-da svolgere, perché il passo di 16\,KB fra celle contigue disperde lo stato caldo
-di ciascuna su una pagina diversa.
+diventa conveniente; nella stessa direzione il costo di simulare un'istruzione
+più che quintuplica, da 15,9 a 83,4\,ns, a un solo thread e a parità di
+lavoro da svolgere, perché il \emph{working set} delle celle, disperso dal passo di
+16\,KB su una pagina diversa per ognuna, esce prima dal TLB e poi dalla cache di ultimo livello.
 
-Il limite di queste misure è quello posto nella sezione~\ref{sec:pareggio}: la
-macchina non è dedicata e il valore assoluto dello \emph{speedup} non è
-riproducibile fra sessioni diverse. Si ritrovano invece in ogni sessione la
-collocazione del pareggio, la severità della perdita al di sotto di esso,
+Il limite di queste misure è quello posto nella sezione~\ref{sec:crossover}: la
+macchina non è dedicata e il valore assoluto dello speedup cambia fra
+sessioni diverse. Si ritrovano invece in ogni sessione la
+collocazione del \emph{crossover point}, la severità della perdita al di sotto di esso,
 l'andamento della frazione seriale e l'indipendenza dall'intensità di calcolo,
 che sono le quattro affermazioni su cui il risultato poggia.
 
 \section{Sviluppi futuri}
 \label{sec:sviluppi}
 
-Gli sviluppi possibili si dispongono su due piani. Le prime due modifiche non
+Gli sviluppi possibili si dividono in due gruppi. Le prime due modifiche non
 sono scelte di progetto ma conseguenze dirette delle misure del
 capitolo~\ref{ch:risultati}, e restano dentro il modello attuale. Le altre tre
-lo estendono e ne mettono in discussione altrettante ipotesi, cioè la
-profondità unitaria dei canali, il clock unico e il confine oltre il quale il
+lo estendono e ne mettono in discussione altrettante ipotesi, cioè il grado di
+asincronia unitario dei canali, il clock unico e il confine oltre il quale il
 modello RTL si ferma.
 
 \subsection{Le due modifiche indicate dalla misura}
+\label{sec:modifiche-misura}
 
-Le prime due estensioni non sono scelte di progetto ma indicazioni che i dati
-del capitolo~\ref{ch:risultati} lasciano aperte. Spostare il contatore di
+Spostare il contatore di
 lettura nella cella consumatrice ridurrebbe il \emph{false sharing} e
 allineerebbe al tempo stesso il codice C alla struttura fisica del circuito,
 dove quel flip-flop starebbe nel consumatore: due criteri indipendenti indicano
@@ -118,26 +150,67 @@ la stessa modifica, e non costa area, perché il contatore passa da un modulo
 all'altro senza cambiare di numero. Non lo eliminerebbe, per la ragione data
 nella sezione~\ref{sec:parallelo}, e richiede di decidere a chi spetti
 l'aggiornamento di fine ciclo di quel campo, che oggi è del proprietario del
-canale. Spostare la regione parallela fuori dal ciclo dei passi pagherebbe due
-barriere invece di due per ciclo, ed è il modo di abbassare il pareggio senza
-ingrandire la griglia.
+canale.
 
-\subsection{Canali di profondità maggiore di uno}
+La seconda modifica riguarda il costo di sincronizzazione del simulatore. Oggi
+ogni ciclo di clock apre due regioni parallele, una per fase, e paga due volte
+il costo di risvegliare e risincronizzare i thread. Aprendo invece una sola
+regione attorno all'intero ciclo dei passi, e ripartendo al suo interno le due
+fasi fra i thread con due direttive \texttt{omp for}, quel costo si pagherebbe
+una volta per esecuzione; resterebbero per ogni ciclo soltanto le barriere fra
+le due fasi e l'esecuzione su un solo thread della parte seriale di
+ingresso-uscita. Poiché il \emph{crossover point} cade dove il lavoro di un ciclo supera il
+costo che serve a distribuirlo, ridurre quel costo lo sposterebbe verso griglie
+più piccole senza bisogno di ingrandirle; di quanto, resta da misurare.
 
-Portare la profondità da uno a $N$ è una estensione ortogonale: i due contatori
-diventerebbero modulo $N$ invece che modulo due e il resto del protocollo non
-cambierebbe di una riga. La misura da fare è quanta parte della differenza fra
-le due modalità sopravvive quando il buffer nasconde il disallineamento.
+\subsection{Canali con grado di asincronia maggiore di uno}
+
+Il canale attuale ha grado di asincronia uno: il produttore può pubblicare un
+solo valore in anticipo sul consumatore, e deve attendere che sia letto prima di
+pubblicare il successivo. Portare il grado di asincronia da uno a $N$, con un
+\emph{buffer} di $N$ parole, è un'estensione ortogonale: i due contatori
+diventerebbero modulo $2N$ invece che modulo due, il test di dato disponibile
+resterebbe $\mathtt{wp} \neq \mathtt{rp}$ e quello di canale pieno diventerebbe
+$\mathtt{wp} - \mathtt{rp} \equiv N \pmod{2N}$, che per $N = 1$ si riduce
+all'attuale. La misura da fare è quanta parte della differenza fra le due
+modalità sopravvive quando il \emph{buffer} nasconde il disallineamento.
 
 \subsection{Clock indipendenti}
 
-Il modello è sincrono, con un clock globale. Un modello asincrono vero
-richiederebbe di cambiare il solo ciclo di simulazione e non il protocollo,
-perché il \emph{ready bit} compensa il disallineamento del carico di lavoro e
-non quello del clock.
+Il modello è sincrono, con un clock globale. Questa ipotesi è alla base del
+comportamento sistolico: ogni attraversamento di un canale costa esattamente
+un ciclo di clock, e il numero di cicli è quindi una grandezza dell'intero
+array. Con un clock indipendente per ogni cella, il sistema diventerebbe
+globalmente asincrono e localmente sincrono (\emph{GALS})~\cite{Chapiro1984} e cesserebbe di
+essere un array sistolico. La latenza di un attraversamento dipenderebbe allora
+dal rapporto di frequenza e di fase fra i clock dei due lati e dalla latenza
+dei sincronizzatori, anziché rimanere fissa. Di conseguenza, il numero di cicli
+di clock, così come i conteggi di ritentativi e attese, non sarebbe più una
+proprietà uniforme dell'array, ma dipenderebbe dalla singola cella e dai suoi
+rapporti temporali con i vicini. Anche il simulatore richiederebbe una
+struttura diversa: il ciclo a due fasi presuppone che tutte le celle avanzino
+dello stesso passo, mentre un modello \emph{GALS} richiederebbe una simulazione
+a eventi.
+
+Il protocollo invece resterebbe invariato. Lo schema a due contatori realizza
+infatti un \emph{handshake} a transizione: ciascun lato commuta soltanto il
+proprio registro, mentre ciascuno dei due contatori andrebbe sincronizzato
+prima di essere letto dall'altro lato. Il registro dati da 32 bit non
+richiederebbe invece un sincronizzatore dedicato: il produttore lo carica
+sullo stesso fronte di salita in cui commuta \texttt{wp} e non lo modifica
+nuovamente finché il consumatore non ha commutato \texttt{rp}. Quando la
+commutazione di \texttt{wp} raggiunge il consumatore, il dato corrispondente è
+quindi già stabile. Ogni valore pubblicato continuerebbe a essere letto
+esattamente una volta e nell'ordine di pubblicazione; a cambiare sarebbe dunque
+la sola temporizzazione del trasferimento.
 
 \subsection{Il resto della cella in RTL}
 
-Oggi il modello hardware copre il canale e l'interfaccia di comunicazione.
+Oggi il modello RTL copre il canale e l'interfaccia di comunicazione.
 Estenderlo al processore completerebbe il confronto e permetterebbe di misurare
-l'area dell'intera cella e non della sola interfaccia.
+l'area dell'intera cella e non della sola interfaccia. La sintesi ad alto
+livello permette di evitare di riscrivere il processore a mano: uno strumento
+come Vitis HLS di AMD~\cite{VitisHLS} può
+tradurre in RTL le funzioni C che implementano l'interprete. Il blocco ottenuto
+potrebbe poi essere trattato come il canale, verificandolo con i
+\emph{testbench} e misurandone le risorse. \looseness=-2

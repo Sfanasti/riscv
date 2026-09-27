@@ -22,8 +22,9 @@ risultato numericamente definito ma errato, senza che alcun componente rilevi
 l'anomalia.
 
 La tesi adotta un principio elementare per rimuovere questa dipendenza dalla
-schedulazione: impostare canali sincroni che usano \emph{ready bit} in grado di
-modificare l'eventuale flusso di dati nel canale. Ciascun lato del canale possiede
+schedulazione: impostare canali sincroni, cioè
+scanditi dal clock unico dell'array, con grado di asincronia uno e dotati di
+\emph{ready bit} che ne regolano il flusso di dati. Ciascun lato del canale possiede
 un registro da un bit e commuta soltanto il proprio, il produttore quando il dato è
 pronto e il consumatore quando lo ha prelevato; è il confronto fra i due registri,
 e non il valore dell'uno o dell'altro, a dire se il canale è pieno o vuoto. Nessuno
@@ -42,13 +43,15 @@ verificano il comportamento.
 \label{sec:sintesi}
 
 NESO simula una griglia $R \times C$ di celle. Ogni cella è un processore
-RISC-V completo, con i suoi trentadue registri, il suo \emph{program counter} e
+RISC-V a 32 bit completo, con i suoi trentadue registri, il suo \emph{program counter} e
 la sua memoria privata; le celle non condividono memoria e comunicano solo con i
-quattro vicini ortogonali attraverso canali monodirezionali di profondità uno.
-Il tempo è globale e discreto: a ogni ciclo di clock ogni cella viva esegue
-esattamente una istruzione.
+quattro vicini ortogonali attraverso canali monodirezionali con grado di
+asincronia uno, cioè capaci di contenere un solo valore pubblicato e non ancora
+letto.
+Il tempo è globale e discreto: a ogni ciclo di clock ogni cella attiva esegue
+esattamente un'istruzione.
 
-Il punto di partenza è l'interprete a singolo processore RISC-V sviluppato in una
+Il punto di partenza è l'interprete di un singolo processore RISC-V sviluppato in una
 tesi precedente~\cite{TesiStella}. A partire da quello sono stati realizzati:
 
 \begin{itemize}
@@ -60,7 +63,7 @@ tesi precedente~\cite{TesiStella}. A partire da quello sono stati realizzati:
           RV32I usando lo spazio di codifica \emph{custom-0} che la
           specifica RISC-V lascia libero, senza modificare l'assemblatore;
     \item la griglia: topologia, cablaggio dei vicini, clock globale con
-          aggiornamento a due fasi e ingresso/uscita sul perimetro;
+          aggiornamento a due fasi e ingresso-uscita sul perimetro;
     \item nove programmi di prova in assembly, con i programmi di
           verifica in C che li eseguono e ne controllano il risultato con delle
           asserzioni: dal protocollo minimo fra due celle alla moltiplicazione
@@ -68,10 +71,10 @@ tesi precedente~\cite{TesiStella}. A partire da quello sono stati realizzati:
     \item il modello RTL del canale e dell'interfaccia di cella in
           SystemVerilog, verificato con due \emph{testbench} e sintetizzato per
           contare quante porte costa il protocollo;
-    \item la parallelizzazione del simulatore con OpenMP, insieme alla relativa
-          analisi di scalabilità.
+    \item la parallelizzazione con OpenMP della simulazione del singolo ciclo
+          di clock dell'array simulato, insieme alla relativa analisi di scalabilità.
 \end{itemize}
-Il simulatore, i nove programmi in assembly e i programmi di verifica in C che
+Il simulatore dell'array, i nove programmi in assembly e i programmi di verifica in C che
 li misurano sono stati sviluppati interamente nel corso di questa tesi: i dati
 riportati nel capitolo~\ref{ch:risultati} sono il loro risultato diretto.
 
@@ -81,19 +84,26 @@ riportati nel capitolo~\ref{ch:risultati} sono il loro risultato diretto.
 Il capitolo~\ref{ch:strumenti} presenta gli strumenti impiegati: l'architettura
 RISC-V e il sottoinsieme RV32I, i linguaggi usati per le tre viste del sistema
 (C per il simulatore, assembly per i programmi, SystemVerilog per il modello
-hardware) e OpenMP. Il capitolo~\ref{ch:progetto} descrive il progetto
-logico, ovvero l'architettura dell'array e la struttura fisica di una cella e
+hardware) e OpenMP. 
+
+Il capitolo~\ref{ch:progetto} descrive il progetto
+logico, ovvero l'architettura dell'array e la struttura di una cella e
 di un canale, e discute i due piani su cui il lavoro è parallelo: il calcolo
-distribuito sulle celle e l'esecuzione del simulatore stesso. Il
-capitolo~\ref{ch:implementazione} tratta i dettagli più significativi
-dell'implementazione: la codifica delle quattro istruzioni, il ciclo di clock a
+distribuito sulle celle e l'esecuzione del simulatore stesso. 
+
+Il capitolo~\ref{ch:implementazione} tratta i dettagli più significativi
+dell'implementazione: la codifica delle quattro nuove istruzioni sviluppate per la comunicazione, il ciclo di clock a
 due fasi su cui si fonda la sincronizzazione, il protocollo del canale con
 l'invariante che ne garantisce la correttezza, lo stato e la terminazione di
-una cella, l'affaccio dell'host sul perimetro e infine le due descrizioni
+una cella, il modo in cui l'host interagisce con i canali di perimetro e infine
+le due descrizioni
 alternative dello stesso progetto, quella in SystemVerilog e quella
-parallela. Il capitolo~\ref{ch:risultati} raccoglie i
+parallela. 
+
+Il capitolo~\ref{ch:risultati} raccoglie i
 risultati: cosa dimostra ciascun programma di prova, il confronto con il caso
 privo del \emph{ready bit}, il costo in cicli in funzione della forma
-della griglia e le prestazioni del simulatore.\ifconclusioni{} Il
-capitolo~\ref{ch:conclusioni} riassume i due risultati e indica gli sviluppi
+della griglia e le prestazioni del simulatore.\ifconclusioni{} 
+
+Il capitolo~\ref{ch:conclusioni} riassume i due risultati e indica gli sviluppi
 futuri.\fi

@@ -1,16 +1,7 @@
 /*
-    Due celle cablate come una griglia 1x2, cioe' il caso di asm/prodcons.s.
-    Serve a far vedere due cose che il testbench del solo canale non mostra:
-
-      - il DECODE: ogni cella riceve una operazione per ciclo (op, dir, dato) e
-        ne restituisce un risultato solo, esattamente come una istruzione che
-        scrive un registro;
-      - il CABLAGGIO: fra le due celle corrono 33 fili in un verso (32 di dato
-        piu' isrdy) e 1 nell'altro (lo strobe di consumo). Le assegnazioni qui
-        sotto sono, letteralmente, quel fascio di fili.
-
-    Le direzioni inutilizzate sono legate a zero: e' il bordo della griglia, e
-    in C corrisponde ai canali che grid_init possiede e che l'host alimenta.
+    Due celle cablate come griglia 1x2 (asm/prodcons.s): verifica il decode
+    di una operazione per ciclo e il cablaggio fra celle.
+    Le direzioni inutilizzate sono bordo, legate a zero.
 */
 
 `timescale 1ns / 1ps
@@ -56,7 +47,7 @@ module tb_neso_if;
     assign c1_i_isrdy  [OVEST] = c0_o_isrdy  [EST];   /*  1 filo  */
     assign c0_o_rd_en  [EST]   = c1_i_rd_en  [OVEST]; /*  1 filo, di ritorno */
 
-    /* ---- tutto il resto e' bordo: niente vicino, niente dati ---- */
+    /* ---- tutto il resto è bordo ---- */
     assign c0_o_rd_en[NORD]  = 1'b0;
     assign c0_o_rd_en[SUD]   = 1'b0;
     assign c0_o_rd_en[OVEST] = 1'b0;
@@ -85,11 +76,7 @@ module tb_neso_if;
         end
     endtask
 
-    /*
-        Un ciclo di clock = una istruzione per cella, come nel simulatore C.
-        La cella che non ha niente da fare esegue una ISRDY, che e' esattamente
-        quello che fa il consumatore di prodcons.s mentre aspetta.
-    */
+    /* un ciclo = una operazione per cella; chi è inattivo esegue ISRDY */
     task automatic ciclo(
         input logic [1:0] op0, input logic [1:0] dir0, input logic [31:0] dato0,
         input logic [1:0] op1, input logic [1:0] dir1, input logic [31:0] dato1
@@ -123,7 +110,7 @@ module tb_neso_if;
         verifica(res0 === 32'd1, "SETRDY riesce: canale vuoto");
         verifica(res1 === 32'd0, "e c1 non lo vede nello stesso ciclo");
 
-        $display("[3] un ciclo dopo il dato e' visibile: la latenza di un hop");
+        $display("[3] un ciclo dopo il dato è visibile: la latenza di un hop");
         ciclo(OP_ISRDY, NORD, 32'b0,   OP_ISRDY, OVEST, 32'b0);
         verifica(res1 === 32'd1, "ISRDY di c1 ora vale 1");
 
@@ -135,7 +122,7 @@ module tb_neso_if;
         ciclo(OP_ISRDY, NORD, 32'b0,   OP_ISRDY, OVEST, 32'b0);
         verifica(res1 === 32'd0, "canale di nuovo vuoto");
 
-        $display("[6] e c0 puo' ripubblicare");
+        $display("[6] e c0 può ripubblicare");
         ciclo(OP_SETRDY, EST, 32'b0,   OP_ISRDY, OVEST, 32'b0);
         verifica(res0 === 32'd1, "SETRDY riesce di nuovo");
 

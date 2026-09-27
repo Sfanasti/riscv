@@ -5,12 +5,7 @@
 #include <stdbool.h>
 #include "channel.h"
 
-/*
-    Memoria privata di una cella, in parole. Senza la guardia un -DMEM_SIZE da
-    riga di comando verrebbe silenziosamente sovrascritto da questa riga: il
-    default resta 4096 (16 KB), ma un esperimento può abbassarlo per misurare
-    quanto pesa il passo fra celle contigue.
-*/
+/* in parole: 16 KB */
 #ifndef MEM_SIZE
 #define MEM_SIZE 4096
 #endif
@@ -26,13 +21,6 @@ typedef struct {
     Channel out_ch[4];
     Channel *in_ch[4];
 
-    /*
-        Spin contato dal simulatore, non dal programma: quante ISRDY hanno
-        trovato il canale vuoto e quante SETRDY sono state rifiutate. I kernel
-        a catena tengono gli stessi due numeri in s3/s4 e i due conteggi devono
-        coincidere (verificato da test_catena), ma qui valgono per QUALSIASI
-        kernel, anche quelli che non hanno un contatore in assembly.
-    */
     uint32_t attese;        /* ISRDY a vuoto */
     uint32_t ritentativi;   /* SETRDY rifiutate */
 } RISC_V;
@@ -65,7 +53,7 @@ typedef struct {
 #define JAL    0x6F
 #define OP     0x33
 #define ECALL  0x73
-#define PCIO   0x0B
+#define PCIO   0x0B     /* custom-0: IN, OUT, ISRDY, SETRDY */
 
 uint32_t fetch(RISC_V *risc);
 DecodedInstr decode(uint32_t instr);

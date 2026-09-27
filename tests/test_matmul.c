@@ -1,22 +1,8 @@
 /*
-    Verifica end-to-end di asm/matmul.s: C = A x B su griglia RxC.
+    Verifica di matmul.s, C = A x B su griglia RxC. L'host spinge con grid_push
+    la riga i di A a OVEST e la colonna j di B a NORD, appena il canale
+    accetta e senza sfasare gli ingressi.
     Uso: test_matmul <file.o> <righe> <colonne> <K>
-
-    La cella (i,j) accumula C[i][j] e non si muove: a scorrere sono
-    i dati, la riga i di A da OVEST verso EST e la colonna j di B da
-    NORD verso SUD. Dopo K giri ogni cella ha visto esattamente gli 
-    operandi del proprio prodotto interno.
-
-    Quello che questo test dimostra:
-      - il bordo alimentato in modo NON uniforme e variabile nel tempo, un
-        valore diverso per riga e per colonna a ogni giro.Prima vera volta
-        in cui si usa grid_push: BORDO=n e grid_border_fill fanno solo una
-        costante uguale ovunque.
-      - l'host NON sfalsa l'ingresso. In un systolic in lockstep a[i][k] deve
-        entrare al ciclo i+k e b[k][j] al ciclo j+k, altrimenti la cella
-        moltiplica la coppia sbagliata e il risultato è errato in silenzio.
-        Qui si fa push() appena il canale accetta: la cella aspetta di avere
-        entrambi gli operandi. Ready bit al posto della dipendenza dal tempo.
 */
 
 #include <assert.h>
@@ -26,15 +12,11 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 100000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1  9              /* accumulatore C[i][j] (si veda REG_NAMES in risc.c) */
+#define MAX_CICLI 100000   /* tetto: se lo tocca, il test fallisce */
+#define S1  9              /* accumulatore C[i][j] */
 #define S2 18              /* termini rimasti: a fine corsa deve essere 0 */
 
-/*
-    Matrici deterministiche, calcolate invece che allocate. Non sono simmetriche
-    di proposito: con A[i][k] = i+k un prodotto verrebbe uguale al suo trasposto
-    e uno scambio righe/colonne nel cablaggio passerebbe inosservato.
-*/
+/* A e B non simmetriche: uno scambio righe/colonne non passa inosservato */
 static int32_t elemA(int i, int k, int K)    { return i * K + k + 1; }
 static int32_t elemB(int k, int j, int cols) { return k * cols + j + 1; }
 
@@ -45,7 +27,7 @@ int main(int argc, char **argv) {
     }
     int rows = atoi(argv[2]);
     int cols = atoi(argv[3]);
-    int K    = atoi(argv[4]);       /* deve coincidere con il --defsym K del .s */
+    int K    = atoi(argv[4]);       /* = --defsym K del .s */
     assert(rows >= 1 && cols >= 1 && K >= 1);
 
     long size;
@@ -62,22 +44,18 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
-    /*
-        quanti termini sono già entrati da ogni lato: l'host non conta i cicli
-        ma piuttosto i valori consegnati
-    */
+    /* termini già consegnati per riga di A e per colonna di B */
     int *ia = calloc((size_t)rows, sizeof(int));
     int *ib = calloc((size_t)cols, sizeof(int));
     int rifiutate = 0, cicli = 0, vivi;
 
     do {
-        /*
-            Alimentazione: si ritenta finché il canale non accetta, esattamente
-            come farebbe una cella vicina. NOTA: un rifiuto non è un errore, è la
-            backpressure vista dal lato host.
-        */
+        /* un rifiuto è backpressure: si ritenta al ciclo dopo */
         for (int i = 0; i < rows; i++) {
             if (ia[i] < K) {
                 if (grid_push(&g, i, 0, OVEST, (uint32_t)elemA(i, ia[i], K))) {
@@ -97,13 +75,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        /*
-            Drenaggio di est e sud: l'ultima colonna e l'ultima riga inoltrano
-            comunque visto che il kernel è uniforme e nessuno sa di essere sul bordo,
-            inoltre un OUT che nessuno consuma le inchioderebbe sulla propria SETRDY. 
-            Non tocca l'alimentazione: grid_push scrive su in_ch, grid_pop legge da
-            out_ch che sono canali diversi.
-        */
+        /* l'ultima riga e l'ultima colonna inoltrano comunque: si drenano */
         grid_border_drain(&g);
 
         grid_step(&g);
@@ -114,14 +86,11 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /* controllo del deadlock */
+    /* terminazione per ECALL, non per tetto */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
-    /*
-        tutti i termini consegnati: se l'host è rimasto con dei valori in mano,
-        qualcuno ha smesso di leggere prima della fine
-    */
+    /* tutti i termini consegnati */
     for (int i = 0; i < rows; i++) {
         assert(ia[i] == K);
     }
@@ -129,7 +98,7 @@ int main(int argc, char **argv) {
         assert(ib[j] == K);
     }
 
-    /*  ogni cella ha il proprio elemento di C, non un altro */
+    /* ogni cella ha il proprio elemento di C */
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             int32_t atteso = 0;
@@ -138,7 +107,7 @@ int main(int argc, char **argv) {
             }
 
             RISC_V *cella = grid_at(&g, i, j);
-            assert(cella -> regs[S2] == 0);                    /* K giri fatti tutti */
+            assert(cella -> regs[S2] == 0);    /* K giri fatti */
             assert((int32_t)cella -> regs[S1] == atteso);
         }
     }

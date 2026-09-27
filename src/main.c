@@ -19,7 +19,7 @@ static void wait_enter(void) {
     printf("\nPremi INVIO per il prossimo ciclo...");
     fflush(stdout);
     int c;
-    while ((c = getchar()) != '\n' && c != EOF);
+    while ((c = getchar()) != '\n' && c != EOF) { /* svuota la riga */ }
 }
 
 void run_single_risc(RISC_V *risc) {
@@ -53,24 +53,12 @@ void run_grid(Grid *grid, int cicli) {
             wait_enter();
         }
 
-        /*
-            L'host prima del passo: alimenta il perimetro. Il contorno costante
-            è il caso dello stencil (Dirichlet); un contorno che varia per
-            cella o nel tempo si scrive con grid_push, come si vede in tests/test_bordo.c.
-            Senza BORDO i canali di bordo restano vuoti per sempre, cioè un
-            bordo aperto da cui non arriva mai niente.
-        */
+        /* contorno costante con BORDO; per altro, grid_push da C */
         if (bordo) {
             grid_border_fill(grid, (uint32_t)strtoul(bordo, NULL, 0));
         }
 
-        /*
-            Il drenaggio non è opzionale come l'alimentazione: un OUT di
-            perimetro che nessuno consuma inchioda la cella sulla propria
-            SETRDY. Si stampa solo il totale: un kernel come lo stencil, che
-            spinge fuori da tutti e quattro i lati a ogni iterazione, sommergerebbe
-            la traccia. Per un valore preciso c'è grid_pop da C.
-        */
+        /* drenaggio sempre: un OUT di perimetro non letto blocca la cella */
         usciti += grid_border_drain(grid);
 
         grid_step(grid);

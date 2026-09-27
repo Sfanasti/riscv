@@ -1,15 +1,8 @@
 /*
-    Verifica dell'I/O di bordo dell'host su asm/bordo.s, griglia RxC.
+    Verifica dell'I/O di bordo su bordo.s, griglia RxC: l'host spinge a NORD
+    sulla prima riga e drena SUD sull'ultima. Il valore deve arrivare in ogni
+    cella e uscire una volta per colonna.
     Uso: test_bordo <file.o> <righe> <colonne> <valore>
-
-    L'host fa il vicino che le celle di perimetro non hanno, spinge a
-    NORD sulla prima riga e drena SUD sull'ultima.
-
-    Le due asserzioni che contano:
-      - il valore arriva in fondo a ogni colonna --> la spinta funziona
-      - ne esce esattamente uno per colonna --> il drenaggio funziona e
-        non duplica: se grid_pop non consumasse, l'ultima riga si
-        bloccherebbe sulla SETRDY e il test morirebbe sul tetto dei cicli.
 */
 
 #include <assert.h>
@@ -19,8 +12,8 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 100000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9               /* il valore ricevuto (si veda REG_NAMES in risc.c) */
+#define MAX_CICLI 100000   /* tetto: se lo tocca, il test fallisce */
+#define S1 9               /* il valore ricevuto */
 
 int main(int argc, char **argv) {
     if (argc != 5) {
@@ -46,32 +39,28 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
-    /*
-        una sola push per colonna: a griglia appena nata i canali di bordo
-        sono vuoti, quindi deve essere accettata subito
-    */
-
+    /* canali di bordo vuoti: la prima push è accettata... */
     for (int c = 0; c < cols; c++) {
         assert(grid_push(&g, 0, c, NORD, valore) == 1);
     }
 
-    /* e una seconda nello stesso ciclo no perché lo slot è già impegnato */
+    /* ...la seconda nello stesso ciclo no */
     for (int c = 0; c < cols; c++) {
         assert(grid_push(&g, 0, c, NORD, valore + 1) == 0);
     }
 
     int usciti = 0, cicli = 0, vivi;
     do {
-        /*
-            l'host drena il perimetro sud PRIMA del passo, come fosse un vicino 
-            vero: la lettura entra nel "next" e il consumo diventa visibile al commit
-        */
+        /* drenaggio prima del passo, come farebbe un vicino */
         for (int c = 0; c < cols; c++) {
             uint32_t v;
             if (grid_pop(&g, rows - 1, c, SUD, &v)) {
-                assert(v == valore);     /* il dato è passato intatto per 'rows' hop */
+                assert(v == valore);     /* intatto dopo rows hop */
                 usciti++;
             }
         }
@@ -84,10 +73,7 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /*
-        i risc si fermano sulla ecall, ma l'ultimo valore esce dal bordo sud nel
-        ciclo del commit successivo: serve dunque un giro in più per raccoglierlo
-    */
+    /* l'ultimo valore è visibile al commit del ciclo dell'ECALL */
     for (int c = 0; c < cols; c++) {
         uint32_t v;
         if (grid_pop(&g, rows - 1, c, SUD, &v)) { assert(v == valore); usciti++; }
@@ -95,7 +81,7 @@ int main(int argc, char **argv) {
 
     assert(cicli < MAX_CICLI);
     assert(!vivi);
-    assert(usciti == cols);              /* uno per colonna, né perso né duplicato */
+    assert(usciti == cols);              /* né perso né duplicato */
 
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {

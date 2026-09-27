@@ -1,0 +1,38 @@
+% !TEX root = Tesi_Corsi_Leonardo_656276.tex
+% Il codice sorgente, letto direttamente dai file del progetto. Interlinea
+% singola e caratteri non spaziati: con le impostazioni dei capitoli le righe
+% di commento andrebbero a capo.
+\appendix
+\lstset{basicstyle=\footnotesize\ttfamily\linespread{1}\selectfont,
+  columns=fullflexible,keepspaces=true,upquote=true}
+
+\chapter{Codice del canale}
+\lstinputlisting[language=C,caption={\texttt{src/channel.h}}]{../src/channel.h}
+
+\chapter{Modifiche all'interprete}
+Dell'interprete si riportano le parti modificate rispetto a quello di
+partenza~\cite{TesiStella}: l'intestazione, con la cella estesa dai canali e
+dai due contatori di misura, il controllo degli accessi in memoria con le istruzioni
+di \emph{load} e \emph{store} che lo usano, e l'esecuzione delle istruzioni di
+comunicazione, di \texttt{ECALL} e delle codifiche non implementate. Prelievo,
+decodifica ed esecuzione delle altre istruzioni RV32IM sono quelli
+dell'appendice A.2 di~\cite{TesiStella}, a meno della traccia, resa
+disattivabile.
+
+\lstinputlisting[language=C,caption={\texttt{src/risc.h}}]{../src/risc.h}
+\lstinputlisting[language=C,firstline=153,lastline=224,firstnumber=153,
+  caption={\texttt{src/risc.c}, righe 153--224}]{../src/risc.c}
+\lstinputlisting[language=C,firstline=439,lastline=500,firstnumber=439,
+  caption={\texttt{src/risc.c}, righe 439--500}]{../src/risc.c}
+
+\chapter{Codice della griglia}
+\lstinputlisting[language=C,caption={\texttt{src/grid.h}}]{../src/grid.h}
+\lstinputlisting[language=C,caption={\texttt{src/grid.c}}]{../src/grid.c}
+
+\chapter{Modello RTL}
+\lstinputlisting[language={[System]Verilog},
+  caption={\texttt{hw/neso\_defs.svh}}]{../hw/neso_defs.svh}
+\lstinputlisting[language={[System]Verilog},
+  caption={\texttt{hw/neso\_channel.sv}}]{../hw/neso_channel.sv}
+\lstinputlisting[language={[System]Verilog},
+  caption={\texttt{hw/neso\_if.sv}}]{../hw/neso_if.sv}

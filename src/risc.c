@@ -14,21 +14,7 @@ static const char *REG_NAMES[32] = {
 
 static const char *DIR_NAMES[4] = { "NORD", "EST", "SUD", "OVEST" };
 
-/*
-    Variabili d'ambiente lette una volta sola, in init_risc: stessa convenzione
-    di STEP e BORDO in main.c, ma qui servono anche ai test, che non passano da
-    main.
-
-        NOBP=1   modalità senza backpressure, si veda il case PCIO
-        TRACE=1  traccia per istruzione, SPENTA di default
-
-    Non sono più inizializzate pigramente dentro un accessore: con grid_step
-    parallelo due thread potrebbero scriverle nello stesso istante. La corsa
-    sarebbe benigna (scriverebbero lo stesso valore) ma ThreadSanitizer la
-    segnala, e in un progetto che parla di determinismo una corsa benigna resta
-    un cattivo esempio. init_risc gira sempre da codice seriale, prima di
-    qualunque regione parallela.
-*/
+/* NOBP=1: canali senza controllo di flusso; TRACE=1: traccia per istruzione */
 static int nobp_on;
 static int trace_on;
 
@@ -37,19 +23,6 @@ static void leggi_ambiente(void) {
     trace_on = getenv("TRACE") != NULL;
 }
 
-/*
-    La traccia costava il 58% del tempo di simulazione: un printf per istruzione
-    eseguita, e printf prende il lock di stdout anche scrivendo su /dev/null.
-    Con grid_step parallelo quel lock serializzerebbe tutti i thread, quindi
-    misurare il parallelismo con la traccia accesa significa misurare la
-    contesa sul lock. Spenta di default, TRACE=1 la riaccende per il debug.
-
-    print_state() NON passa di qui: è la stampa di stato che serve a make step,
-    e va emessa quando la si chiede. Restano fuori anche i tre messaggi di
-    errore (PC fuori memoria, accesso fuori RAM, opcode non implementato):
-    scattano una volta sola e fermano il RISC, quindi non pesano e nasconderli
-    renderebbe muto un arresto.
-*/
 #define TRACCIA(...) do { if (trace_on) { printf(__VA_ARGS__); } } while (0)
 
 void print_state(RISC_V *risc) {
@@ -76,12 +49,12 @@ void print_state(RISC_V *risc) {
     for (int d = 0; d < 4; d++){
         printf("%s=%-6d%c ", DIR_NAMES[d], risc -> out_ch[d].data,
                ch_isrdy(&risc -> out_ch[d]) ? '*' : '.');
-        }
+    }
     printf("\n");
 }
 
 void init_risc(RISC_V *risc, uint32_t start_pc, int id) {
-    leggi_ambiente();   /* idempotente, e sempre da codice seriale */
+    leggi_ambiente();
 
     for (int i = 0; i < 32; i++){
         risc -> regs[i] = 0;
@@ -102,10 +75,7 @@ void init_risc(RISC_V *risc, uint32_t start_pc, int id) {
     risc -> risc_id = id;
     risc -> attese = 0;
     risc -> ritentativi = 0;
-    /*
-        i registri di identità (a0..a3 = riga, colonna, righe, colonne) li
-        scrive grid_init: qui non si sa niente della topologia
-    */
+    /* a0..a3 li scrive grid_init */
 }
 
 uint32_t fetch(RISC_V *risc) {
@@ -180,22 +150,12 @@ DecodedInstr decode(uint32_t instr) {
     return d;
 }
 
-/*
-    Larghezza in byte per funct3 di LOAD/STORE; 0 = codifica non implementata.
-    LB LH LW - LBU LHU - -
-*/
+/* byte per funct3 (LB LH LW - LBU LHU - -); 0 = non implementata */
 static const int LS_WIDTH[8] = { 1, 2, 4, 0, 1, 2, 0, 0 };
 
-/*
-    La RAM del RISC è byte-indirizzata (come la vede il caricatore ELF, che fa
-    memcpy su (uint8_t*)memory + sh_addr): "memory" è uint32_t[] solo per
-    comodità del fetch.
-    L'indirizzo NON è quindi un indice di parola.
-    Senza questo controllo uno store oltre i 16 KB finiva nel RISC successivo
-    dell'array flat di grid.c, corrompendolo.
-*/
+/* indirizzo in byte; fuori memoria ferma il RISC */
 static uint8_t *mem_ptr(RISC_V *risc, uint32_t addr, int width) {
-    if (width == 0 || addr > (uint32_t)sizeof(risc -> memory) - (uint32_t)width) {
+    if (width == 0 || addr > sizeof(risc -> memory) - (uint32_t)width) {
         printf("[RISC %d] accesso a 0x%08x (%d byte) fuori RAM -> stop\n",
                risc -> risc_id, addr, width);
         risc -> running = false;
@@ -256,7 +216,7 @@ void execute(RISC_V *risc, DecodedInstr d) {
                 }
 
                 uint32_t v = risc -> regs[d.rs2];
-                memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian: i byte bassi per primi */
+                memcpy(p, &v, (size_t)LS_WIDTH[d.funct3]);   /* little-endian */
                 TRACCIA("%s x%d, %d(x%d)\n",
                        d.funct3 == 0x0 ? "SB" : d.funct3 == 0x1 ? "SH" : "SW",
                        d.rs2, d.imm, d.rs1);
@@ -478,72 +438,50 @@ void execute(RISC_V *risc, DecodedInstr d) {
 
         case PCIO:
             {
-                int dir = d.rs2;
+                int dir = d.rs2 & 3;    /* due bit bassi dell'immediato */
 
-                /*
-                    in_ch è NULL solo su un risc fuori griglia (modalità single-risc):
-                    un ingresso scollegato è un canale eternamente vuoto,
-                    ISRDY dà 0 e IN dà 0. In griglia sono tutti cablati, bordo
-                    compreso, quindi qui non cambia niente.
-                */
-                Channel *in = risc -> in_ch[dir];
+                Channel *in = risc -> in_ch[dir];   /* NULL fuori griglia */
 
-                /*
-                    Modalità senza backpressure (NOBP=1): il canale degrada a un
-                    registro senza handshake, cioè il systolic in lockstep puro
-                    che il ready bit sostituisce.
-                    OUT sovrascrive anche uno slot non ancora letto, SETRDY non
-                    fallisce mai, ISRDY dice sempre di sì.
-                    Il doppio buffer data/data_next resta, quindi fra le
-                    due modalità cambia SOLO il controllo di flusso: la latenza
-                    di un ciclo per hop e l'ordine di visibilità sono identici.
-                    Serve a far perdere dati, non a funzionare: in pratica utilizzato
-                    solo per avere un confronto con gli altri dati.
-                */
                 if (nobp_on) {
                     if (d.funct3 == 0x0){
-                        risc -> regs[d.rd] = in ? in -> data : 0;          /* IN */
+                        risc -> regs[d.rd] = in ? in -> data : 0;   /* IN */
                     }
-                    else if (d.funct3 == 0x1){                             /* OUT */
-                        /*
-                            Qui SETRDY non commuta wp, quindi la cattura di
-                            ch_commit (che scatta sulla transizione) non
-                            scatterebbe mai e il dato non arriverebbe. La OUT
-                            forza la transizione da sé: è esattamente il canale
-                            senza handshake, dove pubblicare non richiede il
-                            permesso di nessuno.
-                        */
+                    else if (d.funct3 == 0x1){                      /* OUT */
                         Channel *o = &risc -> out_ch[dir];
                         o -> data_next = risc -> regs[d.rs1];
                         o -> wp_next   = o -> wp ^ 1;
                     }
                     else {
-                        risc -> regs[d.rd] = 1;   /* ISRDY e SETRDY: sempre */
+                        risc -> regs[d.rd] = 1;   /* ISRDY e SETRDY: sempre 1 */
                     }
                     break;
                 }
 
                 if (d.funct3 == 0x0) { /* IN */
                     risc  ->  regs[d.rd] = in ? ch_read_c(in) : 0;
-                    TRACCIA("IN x%d, DIR:%d (valore: %d)\n", d.rd, dir, risc -> regs[d.rd]);
+                    TRACCIA("IN x%d, DIR:%d (valore: %d)\n",
+                            d.rd, dir, risc -> regs[d.rd]);
                 }
                 else if (d.funct3 == 0x1) { /* OUT */
                     ch_write(&risc->out_ch[dir], risc->regs[d.rs1]);
-                    TRACCIA("OUT x%d, DIR:%d (valore: %d)\n", d.rs1, dir, risc -> regs[d.rs1]);
+                    TRACCIA("OUT x%d, DIR:%d (valore: %d)\n",
+                            d.rs1, dir, risc -> regs[d.rs1]);
                 }
                 else if(d.funct3 == 0x2) { /* ISRDY */
                     risc  ->  regs[d.rd] = in ? ch_isrdy(in) : 0;
                     if (!risc -> regs[d.rd]) {
                         risc -> attese++;
                     }
-                    TRACCIA("ISRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
+                    TRACCIA("ISRDY x%d, DIR:%d (esito: %d)\n",
+                            d.rd, dir, risc -> regs[d.rd]);
                 }
                 else if(d.funct3 == 0x3) { /* SETRDY */
                     risc  ->  regs[d.rd] = ch_setrdy(&risc  ->  out_ch[dir]);
                     if (!risc -> regs[d.rd]) {
                         risc -> ritentativi++;
                     }
-                    TRACCIA("SETRDY x%d, DIR:%d (esito: %d)\n", d.rd, dir, risc->regs[d.rd]);
+                    TRACCIA("SETRDY x%d, DIR:%d (esito: %d)\n",
+                            d.rd, dir, risc -> regs[d.rd]);
                 }
                 break;
             }
@@ -555,8 +493,10 @@ void execute(RISC_V *risc, DecodedInstr d) {
 
         default:
             risc -> running = false;
-            printf("[RISC %d] pc=0x%08x instr=0x%08x opcode 0x%02x non implementato -> stop\n",
-                   risc -> risc_id, risc -> pc - 4, risc -> current_inst, d.opcode);
+            printf("[RISC %d] pc=0x%08x instr=0x%08x "
+                   "opcode 0x%02x non implementato -> stop\n",
+                   risc -> risc_id, risc -> pc - 4, risc -> current_inst,
+                   d.opcode);
             break;
     }
 

@@ -1,18 +1,9 @@
 /*
-    Verifica end-to-end di asm/jacobi.s (Jacobi a 5 punti) su griglia RxC.
+    Verifica di jacobi.s su griglia RxC. Il riferimento in C esegue le stesse
+    operazioni intere del kernel, quindi il confronto è esatto. Senza CSV=1
+    stampa max|u_k - u_(k-1)| per iterazione, da cui si sceglie ITER per una
+    tolleranza data.
     Uso: test_jacobi <file.o> <righe> <colonne> <bordo> <iter> <seme>
-
-    L'asserzione principale è sicuramente esatta: come spiegato in jacobi.s,
-    srai con l'arrotondamento è aritmetica intera deterministica, non
-    un'approssimazione della media. Quindi il riferimento in C non deve
-    modellare il kernel, deve solo rifare le stesse operazioni sugli stessi
-    int32_t.
-
-    Da qui viene anche la tabella di convergenza: siccome il riferimento è
-    esatto, max|u_k - u_k-1| (criterio di convergenza) calcolato in C è la
-    convergenza dell'array, e non serve guardare i registri ciclo per ciclo. 
-    La tabella dice con quale ITER compilare per stare sotto una tolleranza 
-    data (il ciclo while err > tol di MATLAB)
 */
 
 #include <assert.h>
@@ -22,14 +13,10 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 2000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9                /* u, il valore della cella (si veda REG_NAMES in risc.c) */
+#define MAX_CICLI 2000000   /* tetto: se lo tocca, il test fallisce */
+#define S1 9                /* u, il valore della cella */
 
-/*
-    Una iterazione di Jacobi, identica a quella del kernel: la condizione al
-    bordo sostituisce i vicini che cadono fuori, e il +2 prima dello shift è
-    l'arrotondamento al più vicino che evita il punto fisso spurio.
-*/
+/* una iterazione come nel kernel: bordo al posto dei vicini esterni */
 static void passo(const int32_t *u, int32_t *un, int rows, int cols, int32_t bordo) {
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
@@ -51,7 +38,7 @@ int main(int argc, char **argv) {
     int     cols  = atoi(argv[3]);
     int32_t bordo = (int32_t)strtol(argv[4], NULL, 0);
     int     iter  = atoi(argv[5]);
-    int     seme  = atoi(argv[6]);      /* 0 = interno freddo, 1 = campo iniziale r+c */
+    int     seme  = atoi(argv[6]);      /* 0: u=0, 1: u=r+c */
     assert(rows >= 1 && cols >= 1 && iter >= 1);
 
     long size;
@@ -68,15 +55,15 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
     int n = rows * cols;
     int cicli = 0, vivi, usciti = 0;
     do {
-        /*
-            serve alimentare il contorno e drenare il perimetro, entrambi PRIMA del 
-            passo, così l'host paga la stessa latenza di un ciclo per hop di ogni cella
-        */
+        /* contorno e drenaggio prima del passo, come farebbe un vicino */
         grid_border_fill(&g, (uint32_t)bordo);
         usciti += grid_border_drain(&g);
 
@@ -88,11 +75,7 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /*
-        rischio vero di questo kernel: una cella che aspetta un vicino in attesa a sua 
-        volta (deadlock). Se l'ordine spedisci-tutti / ricevi-tutti venisse invertito nel .s, 
-        il test finirebbe qui.
-    */
+    /* terminazione per ECALL, non per tetto (deadlock) */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
@@ -106,9 +89,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /*
-        La tolleranza: max|u_k - u_k-1| a ogni iterazione, tracciata e stampata.
-    */
+    /* tracce[k-1] = max|u_k - u_(k-1)| */
     int32_t *tracce = malloc((size_t)iter * sizeof(int32_t));
     assert(tracce);
     int32_t delta = 0;
@@ -134,7 +115,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* Il campo dell'array è l'iterato ITER-esimo, esatto */
+    /* il campo dell'array è l'iterato ITER-esimo, esatto */
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
             assert((int32_t)grid_at(&g, r, c) -> regs[S1] == u[r * cols + c]);
@@ -142,34 +123,24 @@ int main(int argc, char **argv) {
     }
 
     /*
-        Se il riferimento ha raggiunto un punto fisso, quel punto fisso deve
-        essere la soluzione vera: con contorno costante Jacobi converge a BORDO
-        su tutta la griglia, da qualunque campo iniziale. Serve a verificare che
-        l'arrotondamento sia effettivamente utile — con srai secco il campo si ferma
-        sotto bordo e questa asserzione fallisce.
+        il punto fisso deve essere la soluzione esatta, bordo ovunque; con la
+        sola troncatura il campo si ferma sotto e l'asserzione fallisce
     */
-    int convergiuto = (k_finale < iter);
-    if (convergiuto) {
+    int convergente = (k_finale < iter);
+    if (convergente) {
         for (int i = 0; i < n; i++) {
             assert(u[i] == bordo);
         }
     }
 
-    /*
-        delta = 0 significa punto fisso raggiunto: è la colonna che dice se
-        k_finale è una convergenza o solo l'ultima iterazione fatta.
-    */
+    /* delta = 0: k_finale è una convergenza, non l'ultima iterazione */
     unsigned ritentativi, attese;
     grid_spin(&g, &ritentativi, &attese);
     fprintf(stderr, "%d,%d,%d,%u,%u,%d,%d,%d,%d,%d,%d\n",
             rows, cols, cicli, ritentativi, attese,
-            bordo, iter, seme, usciti, k_finale, convergiuto ? 0 : delta);
+            bordo, iter, seme, usciti, k_finale, convergente ? 0 : delta);
 
-    /*
-        La traccia dei delta: da qui si legge il k per QUALUNQUE tolleranza,
-        che è il ciclo "while err > tol" srotolato. Stampata fino al primo zero,
-        il resto sono iterazioni che non cambiano niente.
-    */
+    /* traccia dei delta fino al primo zero, esclusa dal CSV */
     if (!getenv("CSV")) {
         fprintf(stderr, "%18s delta:", "");
         for (int k = 1; k <= iter && k <= k_finale + 1; k++) {

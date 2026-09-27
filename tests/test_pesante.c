@@ -1,18 +1,8 @@
 /*
-    Verifica end-to-end di asm/pesante.s, il kernel sintetico a intensità di
-    calcolo regolabile. Uso: test_pesante <file.o> <righe> <colonne> <bordo>
-    <iter> <peso>
-
-    Come per test_jacobi.c, il riferimento non modella il kernel: rifà le
-    stesse operazioni sugli stessi uint32_t. Lo xorshift è aritmetica intera
-    deterministica, non un'approssimazione, quindi l'asserzione è esatta bit
-    per bit. uint32_t e non int32_t per due motivi che vanno insieme: srli è
-    lo shift logico, e l'overflow con segno in C sarebbe comportamento non
-    definito mentre qui l'aritmetica modulo 2^32 È il meccanismo.
-
-    A differenza di Jacobi non c'è convergenza da tracciare: il mescolamento
-    è caotico per costruzione, e un punto fisso sarebbe un difetto. Quello che
-    si verifica è solo che l'array calcoli esattamente il riferimento.
+    Verifica di pesante.s su griglia RxC. Il riferimento in C esegue le stesse
+    operazioni su uint32_t (srli è logico, l'overflow senza segno è definito),
+    quindi il confronto è esatto bit per bit.
+    Uso: test_pesante <file.o> <righe> <colonne> <bordo> <iter> <peso>
 */
 
 #include <assert.h>
@@ -22,25 +12,16 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 2000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
-#define S1 9                /* il valore della cella (si veda REG_NAMES in risc.c) */
+#define MAX_CICLI 2000000   /* tetto: se lo tocca, il test fallisce */
+#define S1 9                /* il valore della cella */
 
 /*
-    Ogni quanti cicli si controlla se qualcuno è ancora vivo. La scansione è
-    seriale su tutte le celle, quindi a 65 k celle pagata a ogni ciclo
-    costerebbe quanto la fase parallela e nasconderebbe proprio lo speedup
-    che questo kernel serve a misurare. Le celle ferme sono già saltate dalla
-    fase di calcolo, dunque i cicli in eccesso sono inerti: il prezzo è che
-    il numero di cicli riportato è arrotondato per eccesso a un multiplo di
-    BLOCCO, e va ricordato quando lo si cita.
+    terminazione controllata ogni BLOCCO cicli: la scansione è seriale. I
+    cicli riportati sono arrotondati per eccesso a un multiplo di BLOCCO.
 */
 #define BLOCCO 64
 
-/*
-    Il mescolamento del kernel, istruzione per istruzione: xorshift a 32 bit
-    di Marsaglia (13, 17, 5) più la costante additiva che impedisce allo zero
-    di restare zero.
-*/
+/* xorshift (13, 17, 5) più costante additiva, come nel kernel */
 static uint32_t mescola(uint32_t x, int peso) {
     for (int p = 0; p < peso; p++) {
         x ^= x << 13;
@@ -51,11 +32,7 @@ static uint32_t mescola(uint32_t x, int peso) {
     return x;
 }
 
-/*
-    Una iterazione completa: la condizione al bordo sostituisce i vicini che
-    cadono fuori dalla griglia, esattamente come l'host li alimenta con
-    grid_border_fill.
-*/
+/* una iterazione come nel kernel: bordo al posto dei vicini esterni */
 static void passo(const uint32_t *u, uint32_t *un, int rows, int cols,
                   uint32_t bordo, int peso) {
     for (int r = 0; r < rows; r++) {
@@ -104,11 +81,7 @@ int main(int argc, char **argv) {
     int cicli = 0, vivi = 1, usciti = 0;
     do {
         for (int b = 0; b < BLOCCO && cicli < MAX_CICLI; b++) {
-            /*
-                alimentare il contorno e drenare il perimetro, entrambi PRIMA
-                del passo, così l'host paga la stessa latenza di un ciclo
-                per salto di ogni cella
-            */
+            /* contorno e drenaggio prima del passo, come farebbe un vicino */
             grid_border_fill(&g, bordo);
             usciti += grid_border_drain(&g);
 
@@ -121,11 +94,7 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /*
-        Stesso rischio di Jacobi: se l'ordine spedisci-tutti / ricevi-tutti
-        venisse invertito nel .s, la griglia andrebbe in deadlock e il test
-        finirebbe qui.
-    */
+    /* terminazione per ECALL, non per tetto (deadlock) */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 

@@ -1,11 +1,7 @@
 /*
-    Verifica end-to-end dei programmi a catena (prodcons.s, chain.s) su 1xC.
+    Verifica di prodcons.s e chain.s su griglia 1xC.
     Uso: test_catena <file.o> <colonne> <somma attesa>
-    Con <somma attesa> negativa la somma non viene verificata, solo misurata.
-
-    Legge i registri direttamente invece di fare parsing della stampa. 
-    Lo stesso binario serve entrambi i programmi, perché prodcons.s è il caso C=2 
-    della stessa chain.
+    Con <somma attesa> negativa la somma è solo misurata.
 */
 
 #include <assert.h>
@@ -15,9 +11,9 @@
 #include "grid.h"
 #include "elf.h"
 
-#define MAX_CICLI 1000000   /* tetto anti-deadlock: se lo tocca, il test fallisce */
+#define MAX_CICLI 1000000   /* tetto: se lo tocca, il test fallisce */
 
-/* indici dei registri usati dai programmi (si veda REG_NAMES in risc.c) */
+/* indici dei registri usati dai programmi */
 #define A0 10   /* riga */
 #define A1 11   /* colonna */
 #define A2 12   /* righe totali */
@@ -48,7 +44,10 @@ int main(int argc, char **argv) {
     }
 
     /* la traccia per istruzione qui è rumore: il risultato esce su stderr */
-    freopen("/dev/null", "w", stdout);
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "Errore: impossibile silenziare stdout\n");
+        return 1;
+    }
 
     int cicli = 0, vivi;
     do {
@@ -60,7 +59,7 @@ int main(int argc, char **argv) {
         }
     } while (vivi && cicli < MAX_CICLI);
 
-    /* terminazione: tutti fermi per ECALL, non per tetto raggiunto */
+    /* terminazione per ECALL, non per tetto */
     assert(cicli < MAX_CICLI);
     assert(!vivi);
 
@@ -81,32 +80,19 @@ int main(int argc, char **argv) {
         reg_att += k -> regs[S4];
     }
 
-    /*
-        Il conto del simulatore (grid_spin) e quello che il programma tiene in
-        s3/s4 misurano la stessa cosa da due lati: ogni giro di respin esegue
-        esattamente una ISRDY/SETRDY fallita. Devono coincidere in quanto rappresentano 
-        la taratura dei contatori del simulatore, che gli altri kernel usano senza avere
-        un equivalente in assembly da confrontare.
-    */
+    /* i contatori di grid_spin devono coincidere con s3/s4 del programma */
     unsigned ritentativi, attese;
     grid_spin(&g, &ritentativi, &attese);
     assert(ritentativi == reg_rit);
     assert(attese == reg_att);
 
-    /*
-        il risultato, sull'ultima colonna. Si stampa sempre quello MISURATO:
-        con attesa < 0 il test non verifica, misura e basta
-        (NOBP=1, dove la somma sbagliata è il risultato che si vuole leggere)
-    */
+    /* somma sull'ultima colonna; con attesa < 0 (NOBP=1) solo misurata */
     int somma = (int)grid_at(&g, 0, cols - 1) -> regs[S1];
     if (attesa >= 0) {
         assert(somma == attesa);
     }
 
-    /*
-        Riga CSV: il prefisso (kernel e parametri) lo scrive il Makefile;
-        qui si chiude con quello che sa solo il test.
-    */
+    /* riga CSV: kernel e parametri li scrive il Makefile */
     fprintf(stderr, "1,%d,%s,%d,%u,%u,%d\n",
             cols, getenv("NOBP") ? "no" : "si", cicli, ritentativi, attese, somma);
 
