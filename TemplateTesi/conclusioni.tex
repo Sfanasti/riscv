@@ -25,8 +25,8 @@ insieme soltanto a ritardo zero, dove i due cicli costano sei istruzioni per
 valore ciascuno; negli altri casi l'array produce un risultato numericamente
 definito ma errato, che nessun componente rileva. Ciascun lato del
 canale commuta soltanto il proprio registro da un bit ed è il confronto fra i
-due, e non il valore dell'uno o dell'altro, a stabilire se il canale sia pieno o
-vuoto: nessuno dei due lati conosce il comportamento temporale dell'altro, e la
+due, e non il valore dell'uno o dell'altro, a stabilire se il consumatore abbia una parola da leggere e se il produttore
+possa pubblicarne una nuova: nessuno dei due lati conosce il comportamento temporale dell'altro, e la
 correttezza cessa di dipendere dalla schedulazione con cui l'host alimenta
 l'array.
 
@@ -170,7 +170,7 @@ solo valore in anticipo sul consumatore, e deve attendere che sia letto prima di
 pubblicare il successivo. Portare il grado di asincronia da uno a $N$, con un
 \emph{buffer} di $N$ parole, è un'estensione ortogonale: i due contatori
 diventerebbero modulo $2N$ invece che modulo due, il test di dato disponibile
-resterebbe $\mathtt{wp} \neq \mathtt{rp}$ e quello di canale pieno diventerebbe
+resterebbe $\mathtt{wp} \neq \mathtt{rp}$ e la pubblicazione verrebbe rifiutata per
 $\mathtt{wp} - \mathtt{rp} \equiv N \pmod{2N}$, che per $N = 1$ si riduce
 all'attuale. La misura da fare è quanta parte della differenza fra le due
 modalità sopravvive quando il \emph{buffer} nasconde il disallineamento.

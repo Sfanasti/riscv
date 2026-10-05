@@ -433,8 +433,8 @@ bordo, cioè vi immette i valori che nella griglia arriverebbero da un vicino;
 dall'altro consuma ciò che le celle di perimetro pubblicano verso l'esterno,
 operazione che nel codice è \texttt{grid\_border\_drain}.
 
-In assenza di alimentazione, i canali di bordo restano vuoti in modo
-permanente: è un bordo aperto da cui non giunge alcun dato, e il programma in
+In assenza di alimentazione, i canali di bordo non hanno mai una parola da
+leggere: è un bordo aperto da cui non giunge alcun dato, e il programma in
 attesa ritenta indefinitamente senza che la griglia si blocchi. Se invece
 nessuno preleva, una pubblicazione di perimetro resta non letta in modo
 permanente e la cella che intende pubblicare in quella direzione resta bloccata

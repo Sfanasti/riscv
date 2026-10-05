@@ -27,7 +27,8 @@ scanditi dal clock unico dell'array, con grado di asincronia uno e dotati di
 \emph{ready bit} che ne regolano il flusso di dati. Ciascun lato del canale possiede
 un registro da un bit e commuta soltanto il proprio, il produttore quando il dato è
 pronto e il consumatore quando lo ha prelevato; è il confronto fra i due registri,
-e non il valore dell'uno o dell'altro, a dire se il canale è pieno o vuoto. Nessuno
+e non il valore dell'uno o dell'altro, a dire se il consumatore ha una parola da leggere e se il produttore può
+pubblicarne una nuova. Nessuno
 dei due lati deve quindi conoscere in anticipo il comportamento temporale
 dell'altro, e il risultato del calcolo smette di dipendere dalla velocità relativa
 dei nodi.

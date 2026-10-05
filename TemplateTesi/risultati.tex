@@ -123,11 +123,10 @@ Le tre grandezze riportate ovunque sono:
           coincide con il numero di istruzioni della sola cella che si ferma per
           ultima, mentre le istruzioni eseguite dall'array sono la somma su tutte
           le celle.
-    \item \emph{Ritentativi.} Quante \texttt{SETRDY} hanno restituito 0, cioè
-          hanno trovato il canale di uscita ancora pieno, sommate su tutte le
+    \item \emph{Ritentativi.} Quante \texttt{SETRDY} hanno restituito 0, cioè sono state rifiutate perché il consumatore non aveva ancora letto la
+          parola precedente, sommate su tutte le
           celle.
-    \item \emph{Attese.} Quante \texttt{ISRDY} hanno restituito 0, cioè hanno
-          trovato il canale di ingresso vuoto, sommate su tutte le celle.
+    \item \emph{Attese.} Quante \texttt{ISRDY} hanno restituito 0, cioè non hanno trovato una parola da leggere, sommate su tutte le celle.
 \end{itemize}
 
 Gli ultimi due contano istruzioni fallite e non cicli persi, e la differenza
@@ -206,7 +205,7 @@ contasse nulla.
 1:  OUT    s1, EST         # ritentativo: cinque istruzioni
     SETRDY t0, EST
     bnez   t0, 5f
-    addi   s3, s3, 1       # canale ancora pieno: conta e ritenta
+    addi   s3, s3, 1       # rifiutata: conta e ritenta
     j      1b
 
 4:  ISRDY  t0, OVEST       # attesa: quattro istruzioni
@@ -917,8 +916,8 @@ Il confronto isola tre effetti.
     \item Senza, alcuni valori non vengono letti mai e altri più volte, e
           nessuno lo segnala. Con ritardo 1 la somma è 18 invece di 15, cioè
           più del dovuto: il consumatore rilegge un valore che aveva già preso,
-          perché come si è visto nella sezione~\ref{sec:istruzioni} la lettura
-          di un canale vuoto restituisce il precedente. Con ritardo 25 e 60 la
+          perché come si è visto nella sezione~\ref{sec:istruzioni} la lettura di un canale che non ha una parola da leggere restituisce il
+          valore precedente. Con ritardo 25 e 60 la
           somma è 25, cioè $5+5+5+5+5$, perché il consumatore è così lento da
           vedere cinque volte l'ultimo valore e da non vedere mai gli altri
           quattro. Perdita e duplicazione sono le due facce della stessa
@@ -1152,7 +1151,7 @@ In \texttt{broadcast} e \texttt{reduce} i
 ritentativi sono zero su ogni forma: ogni cella pubblica ciascun valore una volta sola e c'è
 sempre qualcuno pronto a consumare. Le attese crescono con la forma perché
 rispecchiano la latenza di propagazione e non una contesa: le 4477
-attese di \texttt{broadcast} su $12\times12$ sono le interrogazioni che le celle fanno a un canale ancora vuoto mentre l'onda le raggiunge, e la cella
+attese di \texttt{broadcast} su $12\times12$ sono le interrogazioni che le celle fanno a un canale che non ha ancora una parola da leggere mentre l'onda le raggiunge, e la cella
 $(11,11)$, l'ultima servita, è a $r+c = 22$ passi di propagazione dalla sorgente. Il valore
 nullo dei ritentativi misura
 che in questi due programmi il canale non è mai il collo di bottiglia.
